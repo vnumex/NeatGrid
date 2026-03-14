@@ -3,22 +3,17 @@ package com.example.neatgrid
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import com.example.neatgrid.ui.theme.NeatGridTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Scaffold
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.navigation.NavController
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -27,13 +22,26 @@ import com.example.neatgrid.ui.components.BottomNavigationBar
 import com.example.neatgrid.ui.screens.AddGameScreen
 import com.example.neatgrid.ui.screens.LibraryScreen
 import com.example.neatgrid.ui.screens.SettingsScreen
+import com.example.neatgrid.ui.screens.SettingsViewModel
+import com.example.neatgrid.ui.theme.NeatGridTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             val navController = rememberNavController()
-            NeatGridTheme {
+
+            val settingsViewModel: SettingsViewModel = viewModel()
+            val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
+
+            val isDarkTheme = when (selectedThemeIndex) {
+                1 -> false
+                2 -> true
+                else -> isSystemInDarkTheme()
+            }
+
+            NeatGridTheme(darkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -45,19 +53,19 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             startDestination = BottomNavItem.Library.route,
                             modifier = Modifier.padding(innerPadding)
-                        ){
-                            composable(BottomNavItem.Library.route){
+                        ) {
+                            composable(BottomNavItem.Library.route) {
                                 LibraryScreen()
                             }
                             composable(BottomNavItem.AddGame.route) {
                                 AddGameScreen()
                             }
                             composable(BottomNavItem.Settings.route) {
-                                SettingsScreen()
+                                SettingsScreen(
+                                    selectedThemeIndex = selectedThemeIndex,
+                                    onThemeChange = { settingsViewModel.setTheme(it) })
                             }
-
                         }
-
                     }
                 }
             }

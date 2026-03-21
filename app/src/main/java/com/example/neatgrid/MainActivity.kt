@@ -1,6 +1,7 @@
 package com.example.neatgrid
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +22,7 @@ import com.example.neatgrid.ui.components.BottomNavItem
 import com.example.neatgrid.ui.components.BottomNavigationBar
 import com.example.neatgrid.ui.screens.AddGameScreen
 import com.example.neatgrid.ui.screens.LibraryScreen
+import com.example.neatgrid.ui.screens.LibraryViewModel
 import com.example.neatgrid.ui.screens.SettingsScreen
 import com.example.neatgrid.ui.screens.SettingsViewModel
 import com.example.neatgrid.ui.theme.NeatGridTheme
@@ -33,6 +35,7 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
 
             val settingsViewModel: SettingsViewModel = viewModel()
+            val libraryViewModel: LibraryViewModel = viewModel()
             val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
 
             val isDarkTheme = when (selectedThemeIndex) {
@@ -55,10 +58,22 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(innerPadding)
                         ) {
                             composable(BottomNavItem.Library.route) {
-                                LibraryScreen()
+                                LibraryScreen(
+                                    viewModel = libraryViewModel,
+                                    onAppClick = { packageName ->
+                                        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                                        if (launchIntent != null) {
+                                            startActivity(launchIntent)
+                                        }
+                                        else {
+                                            Toast.makeText(applicationContext, "App cannot be opened", Toast.LENGTH_SHORT).show()
+                                        }
+                                    })
                             }
                             composable(BottomNavItem.AddGame.route) {
-                                AddGameScreen()
+                                AddGameScreen(
+                                    libraryViewModel = libraryViewModel,
+                                    onAdded = { navController.navigate(BottomNavItem.Library.route) })
                             }
                             composable(BottomNavItem.Settings.route) {
                                 SettingsScreen(

@@ -7,9 +7,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -30,9 +35,10 @@ import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddGameScreen(viewModel: AddGameViewModel = viewModel()) {
+fun AddGameScreen(libraryViewModel: LibraryViewModel, viewModel: AddGameViewModel = viewModel(), onAdded: () -> Unit) {
     val apps by viewModel.appsList.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val selectedApps by viewModel.selectedApp.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
@@ -45,9 +51,29 @@ fun AddGameScreen(viewModel: AddGameViewModel = viewModel()) {
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
+                ),
+                actions = {
+                    if (selectedApps.isNotEmpty()) {
+                        Text(
+                            text = "Selected: ${selectedApps.size}",
+                            modifier = Modifier.padding(end = 16.dp)
+                        )
+                    }
+                }
             )
         },
+        floatingActionButton = {
+            if (selectedApps.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        libraryViewModel.addApps(apps.filter { selectedApps.contains(it.packageName) } )
+                        onAdded()
+                    },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Add Selected Games") }
+                )
+            }
+        }
     ) { paddingValues ->
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -59,18 +85,18 @@ fun AddGameScreen(viewModel: AddGameViewModel = viewModel()) {
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                items(apps, key = { it.packageName }) {
+                items(apps, key = { it.packageName }) { app ->
                     ListItem(
                         leadingContent = {
                             AsyncImage(
-                                model = it.icon,
-                                contentDescription = "${it.label} icon",
+                                model = app.icon,
+                                contentDescription = "${app.label} icon",
                                 modifier = Modifier.size(48.dp)
                             )
                         },
                         headlineContent = {
                             Text(
-                                text = it.label,
+                                text = app.label,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyLarge
@@ -78,14 +104,23 @@ fun AddGameScreen(viewModel: AddGameViewModel = viewModel()) {
                         },
                         supportingContent = {
                             Text(
-                                text = it.packageName,
+                                text = app.packageName,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                        },
+                        trailingContent = {
+                            Checkbox(
+                                checked = selectedApps.contains(app.packageName),
+                                onCheckedChange = { viewModel.toggleAppSelection(app.packageName) }
+                            )
                         }
                     )
-                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 }
             }
         }

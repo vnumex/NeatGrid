@@ -19,6 +19,9 @@ class AddGameViewModel(private val application: Application) : AndroidViewModel(
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _selectedApps = MutableStateFlow<Set<String>>(emptySet())
+    val selectedApp: StateFlow<Set<String>> = _selectedApps
+
     init {
         loadApps()
     }
@@ -29,6 +32,16 @@ class AddGameViewModel(private val application: Application) : AndroidViewModel(
             _appsList.value = repository.getLaunchableApps()
             _isLoading.value = false
         }
+    }
+
+    fun toggleAppSelection(packageName: String) {
+        val currentSelection = _selectedApps.value.toMutableSet()
+        if (currentSelection.contains(packageName)) {
+            currentSelection.remove(packageName)
+        } else {
+            currentSelection.add(packageName)
+        }
+        _selectedApps.value = currentSelection
     }
 
 }

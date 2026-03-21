@@ -20,7 +20,7 @@ class AddGameViewModel(private val application: Application) : AndroidViewModel(
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _selectedApps = MutableStateFlow<Set<String>>(emptySet())
-    val selectedApp: StateFlow<Set<String>> = _selectedApps
+    val selectedApps: StateFlow<Set<String>> = _selectedApps
 
     init {
         loadApps()
@@ -42,6 +42,13 @@ class AddGameViewModel(private val application: Application) : AndroidViewModel(
             currentSelection.add(packageName)
         }
         _selectedApps.value = currentSelection
+    }
+
+    fun selectAllApp(apps: List<AppInfo>) {
+        _selectedApps.value = apps.map { it.packageName }.toSet()
+    }
+    fun clearSelectedApps() {
+        _selectedApps.value = emptySet()
     }
 
 }

@@ -14,6 +14,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,9 +36,16 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
 
             val settingsViewModel: SettingsViewModel = viewModel()
-            val libraryViewModel: LibraryViewModel = viewModel()
-            val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
+            val libraryViewModel: LibraryViewModel = viewModel(
+                factory = object : ViewModelProvider.Factory {
+                    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                        @Suppress("UNCHECKED_CAST")
+                        return LibraryViewModel(application) as T
+                    }
+                }
+            )
 
+            val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
             val isDarkTheme = when (selectedThemeIndex) {
                 1 -> false
                 2 -> true

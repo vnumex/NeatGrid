@@ -34,7 +34,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val navController = rememberNavController()
-
             val settingsViewModel: SettingsViewModel = viewModel()
             val libraryViewModel: LibraryViewModel = viewModel(
                 factory = object : ViewModelProvider.Factory {
@@ -44,6 +43,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
+            val appsPerRow by settingsViewModel.appsPerRow.collectAsStateWithLifecycle()
+            val romFolderUri by settingsViewModel.romFolder.collectAsStateWithLifecycle()
 
             val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
             val isDarkTheme = when (selectedThemeIndex) {
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
                             composable(BottomNavItem.Library.route) {
                                 LibraryScreen(
                                     viewModel = libraryViewModel,
+                                    columns = appsPerRow,
                                     onAppClick = { packageName ->
                                         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
                                         if (launchIntent != null) {
@@ -86,7 +88,12 @@ class MainActivity : ComponentActivity() {
                             composable(BottomNavItem.Settings.route) {
                                 SettingsScreen(
                                     selectedThemeIndex = selectedThemeIndex,
-                                    onThemeChange = { settingsViewModel.setTheme(it) })
+                                    onThemeChange = { settingsViewModel.setTheme(it) },
+                                    selectedAppsPerRow = appsPerRow,
+                                    onAppsPerRowChange = { settingsViewModel.setAppsPerRow(it) },
+                                    selectedRomFolderUri = romFolderUri,
+                                    onRomFolderChange = { settingsViewModel.setRomFolder(it) }
+                                )
                             }
                         }
                     }

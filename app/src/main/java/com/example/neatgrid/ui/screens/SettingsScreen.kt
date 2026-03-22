@@ -20,15 +20,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -37,11 +34,17 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(selectedThemeIndex: Int, onThemeChange: (Int) -> Unit) {
+fun SettingsScreen(
+    selectedThemeIndex: Int,
+    onThemeChange: (Int) -> Unit,
+    selectedAppsPerRow: Int,
+    onAppsPerRowChange: (Int) -> Unit,
+    selectedRomFolderUri: String,
+    onRomFolderChange: (String) -> Unit
+) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     val themeOptions = listOf("System", "Light", "Dark")
     val context = LocalContext.current
-    var selectedFolderUri by remember { mutableStateOf("") }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -53,7 +56,7 @@ fun SettingsScreen(selectedThemeIndex: Int, onThemeChange: (Int) -> Unit) {
             } catch (_: SecurityException) {
                 Toast.makeText(context, "Permission denied", Toast.LENGTH_SHORT).show()
             }
-            selectedFolderUri = uri.toString()
+            onRomFolderChange(uri.toString())
         }
     }
 
@@ -99,6 +102,30 @@ fun SettingsScreen(selectedThemeIndex: Int, onThemeChange: (Int) -> Unit) {
                     }
                 }
             )
+            ListItem(
+                modifier = Modifier.padding(start = 8.dp),
+                headlineContent = { Text(text = "Apps Per Row") },
+                supportingContent = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Slider(
+                            value = selectedAppsPerRow.toFloat(),
+                            onValueChange = { newValue ->
+                                onAppsPerRowChange(newValue.toInt())
+                            },
+                            valueRange = 3f..8f,
+                            steps = 5,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        )
+                        Text(
+                            text = "Current: $selectedAppsPerRow apps",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+            )
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
 
             SectionHeader("ROMs")
@@ -108,7 +135,7 @@ fun SettingsScreen(selectedThemeIndex: Int, onThemeChange: (Int) -> Unit) {
                     .clickable { folderPicker.launch(null) },
                 headlineContent = { Text(text = "Set Folder") },
                 supportingContent = {
-                    if (selectedFolderUri.isNotEmpty()) Text(text = selectedFolderUri)
+                    if (selectedRomFolderUri.isNotEmpty()) Text(text = selectedRomFolderUri)
                     else Text(text = "No folder selected") }
             )
             ListItem(

@@ -19,4 +19,5 @@ The application is built with Kotlin and Jetpack Compose, following Material 3 d
 ### Instructions
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/vnumex/NeatGrid.git](https://github.com/vnumex/NeatGrid.git)
+   git clone https://github.com/vnumex/NeatGrid.git
+2. Run it in Android Studio

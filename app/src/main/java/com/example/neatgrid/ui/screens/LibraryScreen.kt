@@ -1,6 +1,6 @@
 package com.example.neatgrid.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,8 +20,12 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -34,6 +38,7 @@ import coil.compose.AsyncImage
 fun LibraryScreen(viewModel: LibraryViewModel = viewModel(),columns : Int = 5,onAppClick: (String) -> Unit) {
     val library by viewModel.libraryList.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    var expandedMenuPackage by rememberSaveable { mutableStateOf<String?>(null) }
 
     val safeColumns = columns.coerceIn(3,8)
     val iconSize: Dp = when (safeColumns) {
@@ -65,17 +70,22 @@ fun LibraryScreen(viewModel: LibraryViewModel = viewModel(),columns : Int = 5,on
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            items(items = library, key = { it.packageName })
-            { app ->
+            items(items = library, key = { it.packageName }) { app ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp)
-                        .clickable { onAppClick(app.packageName) },
+                        .padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     AsyncImage(
-                        modifier = Modifier.size(iconSize),
+                        modifier = Modifier
+                            .size(iconSize)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { onAppClick(app.packageName) },
+                                    onLongPress = { expandedMenuPackage = app.packageName }
+                                )
+                            },
                         model = app.icon,
                         contentDescription = app.label,
                     )
@@ -86,6 +96,19 @@ fun LibraryScreen(viewModel: LibraryViewModel = viewModel(),columns : Int = 5,on
                         textAlign = TextAlign.Center,
                         text = app.label,
                         maxLines = 2
+                    )
+                    
+                    com.example.neatgrid.ui.components.GameContextMenu(
+                        expanded = expandedMenuPackage == app.packageName,
+                        onDismiss = { expandedMenuPackage = null },
+                        onLaunch = {
+                            expandedMenuPackage = null
+                            onAppClick(app.packageName)
+                        },
+                        onDelete = {
+                            expandedMenuPackage = null
+                            viewModel.removeApp(app.packageName)
+                        }
                     )
                 }
             }

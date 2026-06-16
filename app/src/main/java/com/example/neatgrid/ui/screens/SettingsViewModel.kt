@@ -51,4 +51,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             settingsManager.saveRomFolder(folderPath)
         }
     }
+
+    val rawgApiKey: StateFlow<String> = settingsManager.rawgApiKeyFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ""
+        )
+
+    fun setRawgApiKey(apiKey: String) {
+        viewModelScope.launch {
+            settingsManager.saveRawgApiKey(apiKey)
+        }
+    }
 }

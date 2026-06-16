@@ -18,6 +18,7 @@ class SettingsManager(private val context: Context) {
         val THEME_KEY = intPreferencesKey("theme_index")
         val APPS_PER_ROW_KEY = intPreferencesKey("apps_per_row")
         val ROM_FOLDER_KEY = stringPreferencesKey("rom_folder")
+        val RAWG_API_KEY_KEY = stringPreferencesKey("rawg_api_key")
     }
 
     val appsPerRowFlow: Flow<Int> = context.dataStore.data
@@ -46,9 +47,21 @@ class SettingsManager(private val context: Context) {
         .map { preferences ->
             preferences[ROM_FOLDER_KEY] ?: ""
         }
+
     suspend fun saveRomFolder(folderPath: String) {
         context.dataStore.edit { preferences ->
             preferences[ROM_FOLDER_KEY] = folderPath
+        }
+    }
+
+    val rawgApiKeyFlow: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[RAWG_API_KEY_KEY] ?: ""
+        }
+
+    suspend fun saveRawgApiKey(apiKey: String) {
+        context.dataStore.edit { preferences ->
+            preferences[RAWG_API_KEY_KEY] = apiKey
         }
     }
 }

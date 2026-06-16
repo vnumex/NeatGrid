@@ -10,6 +10,7 @@ fun GameContextMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     onLaunch: () -> Unit,
+    onDetails: () -> Unit,
     onDelete: () -> Unit,
 ) {
     DropdownMenu(
@@ -19,6 +20,10 @@ fun GameContextMenu(
         DropdownMenuItem(
             text = { Text("Launch") },
             onClick = onLaunch
+        )
+        DropdownMenuItem(
+            text = { Text("Details") },
+            onClick = onDetails
         )
         DropdownMenuItem(
             text = { Text("Delete") },

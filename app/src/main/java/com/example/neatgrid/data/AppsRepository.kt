@@ -22,11 +22,63 @@ class AppsRepository(private val context: Context) {
 
         return activities
             .map { resolveInfo ->
-                val label = resolveInfo.loadLabel(pm).toString()
+                var label = resolveInfo.loadLabel(pm).toString()
+                if (label.startsWith("@")) {
+                    try {
+                        val packageName = resolveInfo.activityInfo.packageName
+                        val resources = pm.getResourcesForApplication(packageName)
+                        val resName = label.substringAfter("@")
+                        val resId = resources.getIdentifier(resName, null, packageName)
+                        if (resId != 0) {
+                            label = resources.getString(resId)
+                        } else {
+                            val labelRes = resolveInfo.activityInfo.labelRes.takeIf { it != 0 }
+                                ?: resolveInfo.activityInfo.applicationInfo.labelRes
+                            if (labelRes != 0) {
+                                label = resources.getString(labelRes)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
                 val packageName = resolveInfo.activityInfo.packageName
                 val icon = resolveInfo.loadIcon(pm)
                 AppInfo(label = label, packageName = packageName, icon = icon)
             }
             .sortedWith(compareBy(collator) { it.label })
+    }
+
+    fun getAppInfo(packageName: String): AppInfo? {
+        val pm = context.packageManager
+        val intent = pm.getLaunchIntentForPackage(packageName) ?: return null
+        val resolveInfo = if (Build.VERSION.SDK_INT >= 33) {
+            pm.resolveActivity(intent, PackageManager.ResolveInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.resolveActivity(intent, 0)
+        } ?: return null
+
+        var label = resolveInfo.loadLabel(pm).toString()
+        if (label.startsWith("@")) {
+            try {
+                val resources = pm.getResourcesForApplication(packageName)
+                val resName = label.substringAfter("@")
+                val resId = resources.getIdentifier(resName, null, packageName)
+                if (resId != 0) {
+                    label = resources.getString(resId)
+                } else {
+                    val labelRes = resolveInfo.activityInfo.labelRes.takeIf { it != 0 }
+                        ?: resolveInfo.activityInfo.applicationInfo.labelRes
+                    if (labelRes != 0) {
+                        label = resources.getString(labelRes)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        val icon = resolveInfo.loadIcon(pm)
+        return AppInfo(label = label, packageName = packageName, icon = icon)
     }
 }

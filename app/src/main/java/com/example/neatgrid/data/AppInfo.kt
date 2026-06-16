@@ -6,4 +6,5 @@ data class AppInfo(
     val label: String,
     val packageName: String,
     val icon: Drawable,
+    val coverUrl: String? = null
 )

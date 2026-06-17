@@ -44,7 +44,14 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
         if (!dir.exists()) {
             dir.mkdirs()
         }
-        return File(dir, "$packageName.json")
+        val safeName = try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val hash = md.digest(packageName.toByteArray(Charsets.UTF_8))
+            hash.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            packageName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        }
+        return File(dir, "$safeName.json")
     }
 
     private fun cleanSearchQuery(query: String): String {

@@ -148,20 +148,6 @@ fun SettingsScreen(
                 headlineContent = { Text(text = "Scan Now",fontWeight = FontWeight.SemiBold) },
             )
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
-
-            SectionHeader("LaunchBox Games Database")
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "LaunchBox database integration is active. No API keys are required to fetch game metadata, covers, and screenshots.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
         }
     }
 }

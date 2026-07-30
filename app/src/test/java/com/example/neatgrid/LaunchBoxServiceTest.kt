@@ -42,7 +42,8 @@ class LaunchBoxServiceTest {
         assertEquals(1, results.size)
         val game = results[0]
         assertEquals("Sonic Advance", game.title)
-        assertEquals("launchbox:2224-sonic-advance", game.summary)
+        assertEquals(null, game.summary)
+        assertEquals("2224-sonic-advance", game.sourceId)
         assertEquals("https://images.launchbox-app.com/r2_1294b80c.jpg", game.coverUrl)
         assertEquals(1, game.platforms.size)
         assertEquals("Nintendo Game Boy Advance", game.platforms[0])

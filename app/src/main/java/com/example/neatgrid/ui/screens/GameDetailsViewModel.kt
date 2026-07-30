@@ -5,21 +5,29 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.neatgrid.data.CachedGameMetadata
+import com.example.neatgrid.data.Emulator
 import com.example.neatgrid.data.GameMetadata
-import com.example.neatgrid.data.LaunchBoxService
+import com.example.neatgrid.data.MetadataCacheStatus
+import com.example.neatgrid.data.MetadataRepository
 import com.example.neatgrid.data.RomRepository
-import com.example.neatgrid.data.SettingsManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import java.io.File
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 class GameDetailsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val settingsManager = SettingsManager(application)
-    private val launchBoxService = LaunchBoxService()
+    private val metadataRepository = MetadataRepository(application)
+    private var metadataJob: Job? = null
+    private var metadataRequestId = 0
+    private var searchJob: Job? = null
+    private var searchRequestId = 0
 
     private val _metadata = MutableStateFlow<GameMetadata?>(null)
     val metadata: StateFlow<GameMetadata?> = _metadata.asStateFlow()
@@ -27,170 +35,183 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val _searchResults = MutableStateFlow<List<GameMetadata>>(emptyList())
     val searchResults: StateFlow<List<GameMetadata>> = _searchResults.asStateFlow()
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
+    private val _searchError = MutableStateFlow<String?>(null)
+    val searchError: StateFlow<String?> = _searchError.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _apiNotConfigured = MutableStateFlow(false)
-    val apiNotConfigured: StateFlow<Boolean> = _apiNotConfigured.asStateFlow()
-
-    private fun getCacheFile(packageName: String): File {
-        val dir = File(getApplication<Application>().filesDir, "metadata")
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-        val safeName = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            val hash = md.digest(packageName.toByteArray(Charsets.UTF_8))
-            hash.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            packageName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        }
-        return File(dir, "$safeName.json")
-    }
-
-    private fun cleanSearchQuery(query: String): String {
-        var clean = query.replace(Regex("\\s*\\([^)]*\\)"), "")
-        clean = clean.replace(Regex("\\s*\\[[^]]*\\]"), "")
-        return clean.trim()
-    }
-
     fun loadMetadata(packageName: String) {
-        viewModelScope.launch {
+        metadataJob?.cancel()
+        val requestId = ++metadataRequestId
+        metadataJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            _apiNotConfigured.value = false
-
-            // 1. Try reading from cache
-            val cacheFile = getCacheFile(packageName)
-            if (cacheFile.exists()) {
-                try {
-                    val jsonStr = cacheFile.readText()
-                    val json = JSONObject(jsonStr)
-                    _metadata.value = GameMetadata.fromJson(json)
-                    _isLoading.value = false
-                    return@launch
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            // 2. Fetch automatically by app label
             try {
-                val label = if (RomRepository.isRom(packageName)) {
-                    RomRepository.parse(packageName)?.label ?: "ROM Game"
-                } else {
-                    val pm = getApplication<Application>().packageManager
-                    val appInfo = pm.getApplicationInfo(packageName, 0)
-                    pm.getApplicationLabel(appInfo).toString()
+                val cached = withContext(Dispatchers.IO) {
+                    metadataRepository.readCached(packageName)
                 }
-
-                val cleanedLabel = cleanSearchQuery(label)
-                val results = launchBoxService.searchGames(cleanedLabel)
-                val matchedGameWithDetails = if (results.isNotEmpty()) {
-                    val matchedGame = results.find { it.title.equals(cleanedLabel, ignoreCase = true) }
-                        ?: results.find { it.title.contains(cleanedLabel, ignoreCase = true) }
-                        ?: results.first()
-                    
-                    if (matchedGame.summary?.startsWith("launchbox:") == true) {
-                        val suffix = matchedGame.summary.substringAfter("launchbox:")
-                        launchBoxService.fetchGameDetails(suffix, matchedGame)
-                    } else {
-                        matchedGame
-                    }
+                if (cached != null) {
+                    applyMetadata(cached)
                 } else {
-                    GameMetadata(
-                        title = label,
-                        summary = null,
-                        rating = null,
-                        releaseDate = null,
-                        genres = emptyList(),
-                        platforms = emptyList(),
-                        coverUrl = null,
-                        screenshotUrls = emptyList()
-                    )
+                    refresh(packageName)
                 }
-
-                saveToCache(packageName, matchedGameWithDetails)
-                _metadata.value = matchedGameWithDetails
-            } catch (e: PackageManager.NameNotFoundException) {
-                _error.value = "App not found on device."
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _error.value = e.localizedMessage ?: "Failed to fetch metadata."
+                _error.value = errorMessage(e)
             } finally {
-                _isLoading.value = false
+                if (requestId == metadataRequestId) {
+                    _isLoading.value = false
+                }
             }
         }
+    }
+
+    fun refreshMetadata(packageName: String) {
+        metadataJob?.cancel()
+        val requestId = ++metadataRequestId
+        metadataJob = viewModelScope.launch {
+            val hasMetadata = _metadata.value != null
+            _isLoading.value = !hasMetadata
+            _isRefreshing.value = hasMetadata
+            _error.value = null
+            try {
+                refresh(packageName)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _error.value = errorMessage(e)
+            } finally {
+                if (requestId == metadataRequestId) {
+                    _isLoading.value = false
+                    _isRefreshing.value = false
+                }
+            }
+        }
+    }
+
+    private suspend fun refresh(packageName: String) {
+        val result = metadataRepository.lookup(
+            label = resolveLabel(packageName),
+            preferredPlatforms = resolvePlatforms(packageName)
+        )
+        metadataRepository.save(packageName, result)
+        applyMetadata(result)
+    }
+
+    private fun applyMetadata(cachedMetadata: CachedGameMetadata) {
+        _metadata.value = cachedMetadata.metadata
+        _error.value = if (cachedMetadata.status == MetadataCacheStatus.NOT_FOUND) {
+            "No confident metadata match was found. You can search manually or edit the details."
+        } else {
+            null
+        }
+    }
+
+    private fun resolveLabel(packageName: String): String {
+        if (RomRepository.isRom(packageName)) {
+            return RomRepository.parse(packageName)?.label ?: "ROM Game"
+        }
+        val packageManager = getApplication<Application>().packageManager
+        val appInfo = packageManager.getApplicationInfo(packageName, 0)
+        return packageManager.getApplicationLabel(appInfo).toString()
+    }
+
+    private fun resolvePlatforms(packageName: String): Set<String> {
+        if (!RomRepository.isRom(packageName)) return setOf("Android")
+        val emulatorPackage = RomRepository.parse(packageName)?.emulatorPackage ?: return emptySet()
+        return Emulator.entries
+            .firstOrNull { it.packageName == emulatorPackage }
+            ?.systems
+            ?.filterNot { it == "Multi-System" }
+            ?.toSet()
+            .orEmpty()
     }
 
     fun searchOverride(query: String) {
-        viewModelScope.launch {
-            if (query.isBlank()) return@launch
+        if (query.isBlank()) return
+        searchJob?.cancel()
+        val requestId = ++searchRequestId
+        searchJob = viewModelScope.launch {
             _isSearching.value = true
+            _searchError.value = null
+            _searchResults.value = emptyList()
             try {
-                val results = launchBoxService.searchGames(query)
-                _searchResults.value = results
+                _searchResults.value = metadataRepository.search(query)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                _searchError.value = errorMessage(e)
             } finally {
-                _isSearching.value = false
+                if (requestId == searchRequestId) {
+                    _isSearching.value = false
+                }
             }
         }
     }
 
     fun applyOverride(packageName: String, game: GameMetadata) {
-        viewModelScope.launch {
-            _isLoading.value = true
+        metadataJob?.cancel()
+        val requestId = ++metadataRequestId
+        metadataJob = viewModelScope.launch {
+            val hasMetadata = _metadata.value != null
+            _isLoading.value = !hasMetadata
+            _isRefreshing.value = hasMetadata
+            _error.value = null
             try {
-                val gameWithDetails = if (game.summary?.startsWith("launchbox:") == true) {
-                    val suffix = game.summary.substringAfter("launchbox:")
-                    launchBoxService.fetchGameDetails(suffix, game)
-                } else {
-                    game
-                }
-                saveToCache(packageName, gameWithDetails)
+                val gameWithDetails = metadataRepository.resolve(game)
+                metadataRepository.save(
+                    packageName,
+                    CachedGameMetadata(gameWithDetails, MetadataCacheStatus.CUSTOM)
+                )
                 _metadata.value = gameWithDetails
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                _error.value = errorMessage(e)
             } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    private fun saveToCache(packageName: String, game: GameMetadata) {
-        try {
-            val cacheFile = getCacheFile(packageName)
-            cacheFile.writeText(game.toJson().toString())
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    fun clearOverride(packageName: String) {
-        viewModelScope.launch {
-            try {
-                val cacheFile = getCacheFile(packageName)
-                if (cacheFile.exists()) {
-                    cacheFile.delete()
+                if (requestId == metadataRequestId) {
+                    _isLoading.value = false
+                    _isRefreshing.value = false
                 }
-                _metadata.value = null
-                loadMetadata(packageName)
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
 
     fun updateMetadata(packageName: String, game: GameMetadata) {
-        viewModelScope.launch {
-            saveToCache(packageName, game)
-            _metadata.value = game
+        metadataJob?.cancel()
+        ++metadataRequestId
+        metadataJob = viewModelScope.launch {
+            try {
+                metadataRepository.save(
+                    packageName,
+                    CachedGameMetadata(game, MetadataCacheStatus.CUSTOM)
+                )
+                _metadata.value = game
+                _error.value = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _error.value = errorMessage(e)
+            }
+        }
+    }
+
+    private fun errorMessage(error: Throwable): String {
+        return when (error) {
+            is PackageManager.NameNotFoundException -> "App not found on this device."
+            is IOException -> "Could not connect to the metadata service. Check your connection and try again."
+            else -> error.localizedMessage ?: "Could not load game metadata."
         }
     }
 

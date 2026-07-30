@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,12 +78,13 @@ import coil.compose.AsyncImage
 fun GameDetailsScreen(
     packageName: String,
     onBack: () -> Unit,
+    onMetadataChanged: () -> Unit,
     viewModel: GameDetailsViewModel = viewModel()
 ) {
     val metadata by viewModel.metadata.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val error by viewModel.error.collectAsState()
-    val apiNotConfigured by viewModel.apiNotConfigured.collectAsState()
 
     val context = LocalContext.current
     var showOverrideDialog by remember { mutableStateOf(false) }
@@ -91,6 +93,10 @@ fun GameDetailsScreen(
 
     LaunchedEffect(packageName) {
         viewModel.loadMetadata(packageName)
+    }
+
+    DisposableEffect(packageName) {
+        onDispose(onMetadataChanged)
     }
 
     Scaffold(
@@ -116,12 +122,23 @@ fun GameDetailsScreen(
                                 tint = Color.White
                             )
                         }
-                        IconButton(onClick = { viewModel.clearOverride(packageName) }) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Reset Match",
-                                tint = Color.White
-                            )
+                        IconButton(
+                            enabled = !isRefreshing,
+                            onClick = { viewModel.refreshMetadata(packageName) }
+                        ) {
+                            if (isRefreshing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh metadata",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                 },
@@ -137,40 +154,6 @@ fun GameDetailsScreen(
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center)
                 )
-            } else if (apiNotConfigured) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "LaunchBox Integration Not Configured",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Please configure settings to fetch rich game metadata.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = {
-                            viewModel.launchGame(packageName) {
-                                Toast.makeText(context, "Cannot open game", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Launch Game Anyway")
-                    }
-                }
             } else if (error != null && metadata == null) {
                 Column(
                     modifier = Modifier
@@ -193,18 +176,33 @@ fun GameDetailsScreen(
                         color = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.height(24.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = { showOverrideDialog = true }) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.refreshMetadata(packageName) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Try Again")
+                        }
+                        OutlinedButton(
+                            onClick = { showOverrideDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(Icons.Default.Search, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Search LaunchBox Manually")
                         }
-                        Button(
+                        OutlinedButton(
                             onClick = {
                                 viewModel.launchGame(packageName) {
                                     Toast.makeText(context, "Cannot open game", Toast.LENGTH_SHORT).show()
                                 }
-                            }
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
@@ -275,6 +273,21 @@ fun GameDetailsScreen(
                             .padding(horizontal = 16.dp)
                             .offset(y = (-60).dp)
                     ) {
+                        if (error != null) {
+                            Text(
+                                text = error.orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(12.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.Bottom
@@ -470,6 +483,7 @@ fun GameDetailsScreen(
                         var searchQuery by remember { mutableStateOf(metadata?.title ?: "") }
                         val searchResults by viewModel.searchResults.collectAsState()
                         val isSearching by viewModel.isSearching.collectAsState()
+                        val searchError by viewModel.searchError.collectAsState()
                         val keyboardController = LocalSoftwareKeyboardController.current
 
                         LaunchedEffect(Unit) {
@@ -524,6 +538,14 @@ fun GameDetailsScreen(
                         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             if (isSearching) {
                                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                            } else if (searchError != null) {
+                                Text(
+                                    text = searchError.orEmpty(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.align(Alignment.Center).fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.error
+                                )
                             } else if (searchResults.isEmpty()) {
                                 Text(
                                     text = "No results found. Search above.",

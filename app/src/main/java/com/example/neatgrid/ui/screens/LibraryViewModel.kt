@@ -5,121 +5,190 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neatgrid.data.AppInfo
 import com.example.neatgrid.data.AppsRepository
+import com.example.neatgrid.data.Emulator
 import com.example.neatgrid.data.LibraryRepository
+import com.example.neatgrid.data.LibrarySortMode
+import com.example.neatgrid.data.MetadataRepository
 import com.example.neatgrid.data.RomRepository
-import com.example.neatgrid.data.GameMetadata
-import com.example.neatgrid.data.LaunchBoxService
+import com.example.neatgrid.data.RomRelatedFile
+import com.example.neatgrid.data.SettingsManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import java.io.File
+import kotlinx.coroutines.withContext
+import java.text.Collator
 import java.util.concurrent.ConcurrentHashMap
+
+data class MissingRomPrompt(
+    val packageName: String,
+    val label: String,
+    val emulatorPackage: String,
+    val relatedFiles: List<RomRelatedFile>
+)
+
+private data class LibraryLoadResult(
+    val items: List<AppInfo>,
+    val removedAppPackages: Set<String>,
+    val missingRoms: List<MissingRomPrompt>
+)
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val appsRepository = AppsRepository(application)
     private val libraryRepository = LibraryRepository(application)
+    private val romRepository = RomRepository()
+    private val settingsManager = SettingsManager(application)
+    private val metadataRepository = MetadataRepository(application)
 
+    private val _rawLibraryList = MutableStateFlow<List<AppInfo>>(emptyList())
     private val _libraryList = MutableStateFlow<List<AppInfo>>(emptyList())
     val libraryList: StateFlow<List<AppInfo>> = _libraryList.asStateFlow()
+
+    private val _hiddenGames = MutableStateFlow<List<AppInfo>>(emptyList())
+    val hiddenGames: StateFlow<List<AppInfo>> = _hiddenGames.asStateFlow()
+
+    private val _hiddenPackageNames = MutableStateFlow<Set<String>>(emptySet())
+
+    private val _sortMode = MutableStateFlow(LibrarySortMode.TITLE_ASCENDING)
+    val sortMode: StateFlow<LibrarySortMode> = _sortMode.asStateFlow()
 
     private val _prefetchingStates = MutableStateFlow<Set<String>>(emptySet())
     val prefetchingStates: StateFlow<Set<String>> = _prefetchingStates.asStateFlow()
 
+    private val _detectedGameCandidates = MutableStateFlow<List<AppInfo>>(emptyList())
+    val detectedGameCandidates: StateFlow<List<AppInfo>> = _detectedGameCandidates.asStateFlow()
+
+    private val _missingRomPrompts = MutableStateFlow<List<MissingRomPrompt>>(emptyList())
+    val missingRomPrompts: StateFlow<List<MissingRomPrompt>> = _missingRomPrompts.asStateFlow()
+
     private val prefetchingPackages = ConcurrentHashMap.newKeySet<String>()
+    private val promptedMissingRomPackages = mutableSetOf<String>()
+    private var reloadJob: Job? = null
 
     init {
-        observeSavedPackages()
+        observeSortMode()
+        observeLibraryState()
+        detectInstalledGames()
     }
 
-    private fun observeSavedPackages() {
+    private fun observeSortMode() {
         viewModelScope.launch {
-            libraryRepository.savedPackageNames.collect { savedPackages ->
-                reloadLibrary(savedPackages)
+            settingsManager.librarySortModeFlow.collect { sortMode ->
+                _sortMode.value = sortMode
+                sortLibrary()
             }
         }
     }
 
-    private fun getCacheFile(packageName: String): File {
-        val dir = File(getApplication<Application>().filesDir, "metadata")
-        if (!dir.exists()) {
-            dir.mkdirs()
+    private fun observeLibraryState() {
+        viewModelScope.launch {
+            var loadedPackages: Set<String>? = null
+            combine(
+                libraryRepository.savedPackageNames,
+                libraryRepository.hiddenPackageNames
+            ) { savedPackages, hiddenPackages ->
+                savedPackages to hiddenPackages.intersect(savedPackages)
+            }.collect { (savedPackages, hiddenPackages) ->
+                _hiddenPackageNames.value = hiddenPackages
+                if (loadedPackages != savedPackages) {
+                    loadedPackages = savedPackages
+                    reloadLibrary(savedPackages)
+                } else {
+                    sortLibrary()
+                }
+            }
         }
-        val safeName = try {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            val hash = md.digest(packageName.toByteArray(Charsets.UTF_8))
-            hash.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            packageName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        }
-        return File(dir, "$safeName.json")
     }
 
     private fun reloadLibrary(savedPackageNames: Set<String>) {
-        viewModelScope.launch {
-            val apps = savedPackageNames.filter { !RomRepository.isRom(it) }.mapNotNull { pkg ->
-                val app = appsRepository.getAppInfo(pkg) ?: return@mapNotNull null
-                val cacheFile = getCacheFile(pkg)
-                val coverUrl = if (cacheFile.exists()) {
-                    try {
-                        val jsonStr = cacheFile.readText()
-                        val json = JSONObject(jsonStr)
-                        json.optString("coverUrl", "").takeIf { it.isNotEmpty() }
-                    } catch (e: Exception) {
+        reloadJob?.cancel()
+        reloadJob = viewModelScope.launch {
+            val context = getApplication<Application>()
+            val result = withContext(Dispatchers.IO) {
+                val removedApps = mutableSetOf<String>()
+                val apps = savedPackageNames.filterNot(RomRepository::isRom).mapNotNull { packageName ->
+                    val app = appsRepository.getAppInfo(packageName)
+                    if (app == null) {
+                        removedApps += packageName
                         null
-                    }
-                } else {
-                    null
-                }
-                app.copy(coverUrl = coverUrl)
-            }
-            
-            val roms = savedPackageNames.filter { RomRepository.isRom(it) }.mapNotNull { romPackage ->
-                val romData = RomRepository.parse(romPackage) ?: return@mapNotNull null
-                val pm = getApplication<Application>().packageManager
-                val iconDrawable = try {
-                    pm.getApplicationIcon(romData.emulatorPackage)
-                } catch (e: Exception) {
-                    try {
-                        pm.getApplicationIcon(getApplication<Application>().packageName)
-                    } catch (e2: Exception) {
-                        null
+                    } else {
+                        val cached = metadataRepository.readCached(packageName)?.metadata
+                        app.copy(
+                            coverUrl = cached?.coverUrl,
+                            platform = cached?.platforms?.firstOrNull()
+                        )
                     }
                 }
-                val cacheFile = getCacheFile(romPackage)
-                val coverUrl = if (cacheFile.exists()) {
-                    try {
-                        val jsonStr = cacheFile.readText()
-                        val json = JSONObject(jsonStr)
-                        json.optString("coverUrl", "").takeIf { it.isNotEmpty() }
-                    } catch (e: Exception) {
-                        null
+
+                val missingRomData = mutableListOf<Pair<String, com.example.neatgrid.data.RomData>>()
+                val roms = savedPackageNames.filter(RomRepository::isRom).mapNotNull { romPackage ->
+                    val romData = RomRepository.parse(romPackage)
+                    if (romData == null) {
+                        removedApps += romPackage
+                        return@mapNotNull null
                     }
-                } else {
-                    null
-                }
-                if (iconDrawable != null) {
+                    if (!romRepository.romExists(context, romData.uriString)) {
+                        missingRomData += romPackage to romData
+                        return@mapNotNull null
+                    }
+
+                    val icon = runCatching {
+                        context.packageManager.getApplicationIcon(romData.emulatorPackage)
+                    }.getOrElse {
+                        runCatching { context.packageManager.getApplicationIcon(context.packageName) }.getOrNull()
+                    } ?: return@mapNotNull null
+
+                    val cached = metadataRepository.readCached(romPackage)?.metadata
                     AppInfo(
                         label = romData.label,
                         packageName = romPackage,
-                        icon = iconDrawable,
-                        coverUrl = coverUrl
+                        icon = icon,
+                        coverUrl = cached?.coverUrl,
+                        platform = cached?.platforms?.firstOrNull()
                     )
-                } else {
-                    null
                 }
+
+                val folderUri = settingsManager.romFolderFlow.first()
+                val relatedFiles = romRepository.findRelatedFiles(
+                    context = context,
+                    folderUriString = folderUri,
+                    romLabels = missingRomData.map { it.second.label }.toSet()
+                )
+                val missingRoms = missingRomData.map { (packageName, romData) ->
+                    MissingRomPrompt(
+                        packageName = packageName,
+                        label = romData.label,
+                        emulatorPackage = romData.emulatorPackage,
+                        relatedFiles = relatedFiles[romData.label].orEmpty()
+                    )
+                }
+                LibraryLoadResult(apps + roms, removedApps, missingRoms)
             }
 
-            _libraryList.value = apps + roms
+            _rawLibraryList.value = result.items
+            sortLibrary()
+            if (result.removedAppPackages.isNotEmpty()) {
+                libraryRepository.removeApps(result.removedAppPackages)
+                deleteMetadataCaches(result.removedAppPackages)
+            }
 
-            // Trigger background prefetching for uncached items
-            (apps + roms).forEach { appInfo ->
-                if (!getCacheFile(appInfo.packageName).exists() && prefetchingPackages.add(appInfo.packageName)) {
+            val newPrompts = result.missingRoms.filter { promptedMissingRomPackages.add(it.packageName) }
+            if (newPrompts.isNotEmpty()) {
+                _missingRomPrompts.update { current -> current + newPrompts }
+            }
+
+            result.items.forEach { appInfo ->
+                if (metadataRepository.readCached(appInfo.packageName) == null &&
+                    prefetchingPackages.add(appInfo.packageName)
+                ) {
                     _prefetchingStates.update { it + appInfo.packageName }
-                    launch {
+                    viewModelScope.launch {
                         prefetchMetadata(appInfo.packageName, appInfo.label)
                     }
                 }
@@ -127,53 +196,93 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private suspend fun deleteMetadataCaches(packageNames: Set<String>) = withContext(Dispatchers.IO) {
+        packageNames.forEach { metadataRepository.delete(it) }
+    }
+
     private suspend fun prefetchMetadata(packageName: String, label: String) {
         try {
-            val cleanedLabel = cleanSearchQuery(label)
-            val launchBoxService = LaunchBoxService()
-            val results = launchBoxService.searchGames(cleanedLabel)
-            val matchedGame = if (results.isNotEmpty()) {
-                val bestMatch = results.find { it.title.equals(cleanedLabel, ignoreCase = true) }
-                    ?: results.find { it.title.contains(cleanedLabel, ignoreCase = true) }
-                    ?: results.first()
-
-                if (bestMatch.summary?.startsWith("launchbox:") == true) {
-                    val suffix = bestMatch.summary.substringAfter("launchbox:")
-                    launchBoxService.fetchGameDetails(suffix, bestMatch)
-                } else {
-                    bestMatch
-                }
+            val preferredPlatforms = if (RomRepository.isRom(packageName)) {
+                val emulatorPackage = RomRepository.parse(packageName)?.emulatorPackage
+                Emulator.entries
+                    .firstOrNull { it.packageName == emulatorPackage }
+                    ?.systems
+                    ?.filterNot { it == "Multi-System" }
+                    ?.toSet()
+                    .orEmpty()
             } else {
-                GameMetadata(
-                    title = label,
-                    summary = null,
-                    rating = null,
-                    releaseDate = null,
-                    genres = emptyList(),
-                    platforms = emptyList(),
-                    coverUrl = null,
-                    screenshotUrls = emptyList()
-                )
+                setOf("Android")
             }
-
-            val cacheFile = getCacheFile(packageName)
-            cacheFile.writeText(matchedGame.toJson().toString())
-            
-            // Reload manually to refresh this specific cover art
-            val savedPackages = libraryRepository.savedPackageNames.first()
-            reloadLibrary(savedPackages)
-        } catch (e: Exception) {
-            e.printStackTrace()
+            val cachedMetadata = metadataRepository.lookup(label, preferredPlatforms)
+            metadataRepository.save(packageName, cachedMetadata)
+            _rawLibraryList.update { items ->
+                items.map { item ->
+                    if (item.packageName == packageName) {
+                        item.copy(
+                            coverUrl = cachedMetadata.metadata.coverUrl,
+                            platform = cachedMetadata.metadata.platforms.firstOrNull()
+                        )
+                    } else {
+                        item
+                    }
+                }
+            }
+            sortLibrary()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         } finally {
             prefetchingPackages.remove(packageName)
             _prefetchingStates.update { it - packageName }
         }
     }
 
-    private fun cleanSearchQuery(query: String): String {
-        var clean = query.replace(Regex("\\s*\\([^)]*\\)"), "")
-        clean = clean.replace(Regex("\\s*\\[[^]]*\\]"), "")
-        return clean.trim()
+    fun setSortMode(sortMode: LibrarySortMode) {
+        _sortMode.value = sortMode
+        sortLibrary()
+        viewModelScope.launch {
+            settingsManager.saveLibrarySortMode(sortMode)
+        }
+    }
+
+    private fun sortLibrary() {
+        _libraryList.value = sortedLibraryItems(
+            _rawLibraryList.value.filterNot { it.packageName in _hiddenPackageNames.value }
+        )
+        _hiddenGames.value = sortedLibraryItems(
+            _rawLibraryList.value.filter { it.packageName in _hiddenPackageNames.value }
+        )
+    }
+
+    private fun sortedLibraryItems(items: List<AppInfo>): List<AppInfo> {
+        val collator = Collator.getInstance()
+        return when (_sortMode.value) {
+            LibrarySortMode.TITLE_ASCENDING -> items.sortedWith { left, right ->
+                collator.compare(left.label, right.label)
+            }
+            LibrarySortMode.TITLE_DESCENDING -> items.sortedWith { left, right ->
+                collator.compare(right.label, left.label)
+            }
+            LibrarySortMode.PLATFORM -> items.sortedWith(
+                compareBy<AppInfo> { it.platform == null }
+                    .thenComparator { left, right ->
+                        collator.compare(left.platform.orEmpty(), right.platform.orEmpty())
+                    }
+                    .thenComparator { left, right -> collator.compare(left.label, right.label) }
+            )
+        }
+    }
+
+    fun hideApp(packageName: String) {
+        viewModelScope.launch {
+            libraryRepository.hideApp(packageName)
+        }
+    }
+
+    fun unhideApp(packageName: String) {
+        viewModelScope.launch {
+            libraryRepository.unhideApp(packageName)
+        }
     }
 
     fun addApps(apps: List<AppInfo>) {
@@ -182,9 +291,140 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun detectInstalledGames(onResult: ((Int) -> Unit)? = null) {
+        viewModelScope.launch {
+            val savedPackages = libraryRepository.savedPackageNames.first()
+            val excludedPackages = libraryRepository.excludedDetectedGamePackages.first()
+            val detectedGames = withContext(Dispatchers.IO) {
+                appsRepository.getInstalledGames()
+                    .filter { app ->
+                        app.packageName !in savedPackages && app.packageName !in excludedPackages
+                    }
+            }
+
+            _detectedGameCandidates.value = detectedGames
+            onResult?.invoke(detectedGames.size)
+        }
+    }
+
+    fun addDetectedGames(packageNames: Set<String>) {
+        viewModelScope.launch {
+            val selectedGames = _detectedGameCandidates.value.filter { it.packageName in packageNames }
+            if (selectedGames.isNotEmpty()) {
+                libraryRepository.saveApps(selectedGames)
+            }
+            _detectedGameCandidates.value = _detectedGameCandidates.value
+                .filterNot { it.packageName in packageNames }
+        }
+    }
+
+    fun resolveDetectedGames(keptPackageNames: Set<String>, excludedPackageNames: Set<String>) {
+        viewModelScope.launch {
+            val selectedGames = _detectedGameCandidates.value.filter { it.packageName in keptPackageNames }
+            if (selectedGames.isNotEmpty()) {
+                libraryRepository.saveApps(selectedGames)
+            }
+            if (excludedPackageNames.isNotEmpty()) {
+                libraryRepository.excludeDetectedGames(excludedPackageNames)
+            }
+            _detectedGameCandidates.value = _detectedGameCandidates.value
+                .filterNot { it.packageName in keptPackageNames || it.packageName in excludedPackageNames }
+        }
+    }
+
+    fun excludeDetectedGames(packageNames: Set<String>) {
+        viewModelScope.launch {
+            if (packageNames.isNotEmpty()) {
+                libraryRepository.excludeDetectedGames(packageNames)
+            }
+            _detectedGameCandidates.value = _detectedGameCandidates.value
+                .filterNot { it.packageName in packageNames }
+        }
+    }
+
+    fun dismissDetectedGames() {
+        _detectedGameCandidates.value = emptyList()
+    }
+
+    fun resolveMissingRom(deleteRelatedFiles: Boolean, onComplete: (Int) -> Unit = {}) {
+        val prompt = _missingRomPrompts.value.firstOrNull() ?: return
+        viewModelScope.launch {
+            val deletedFileCount = if (deleteRelatedFiles) {
+                withContext(Dispatchers.IO) {
+                    romRepository.deleteRelatedFiles(getApplication(), prompt.relatedFiles)
+                }
+            } else {
+                0
+            }
+            libraryRepository.removeApp(prompt.packageName)
+            deleteMetadataCaches(setOf(prompt.packageName))
+            _missingRomPrompts.update { prompts ->
+                prompts.filterNot { it.packageName == prompt.packageName }
+            }
+            onComplete(deletedFileCount)
+        }
+    }
+
+    fun dismissMissingRomPrompt() {
+        val prompt = _missingRomPrompts.value.firstOrNull() ?: return
+        promptedMissingRomPackages.remove(prompt.packageName)
+        _missingRomPrompts.update { prompts -> prompts.drop(1) }
+    }
+
+    fun handlePackageRemoved(packageName: String) {
+        viewModelScope.launch {
+            libraryRepository.removeApp(packageName)
+            deleteMetadataCaches(setOf(packageName))
+            _detectedGameCandidates.update { games -> games.filterNot { it.packageName == packageName } }
+        }
+    }
+
+    fun refreshLibrary() {
+        viewModelScope.launch {
+            reloadLibrary(libraryRepository.savedPackageNames.first())
+        }
+    }
+
+    fun scanConfiguredRomFolder(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val folderUri = settingsManager.romFolderFlow.first()
+            if (folderUri.isEmpty()) {
+                onResult(0)
+                return@launch
+            }
+
+            val context = getApplication<Application>()
+            val romApps = withContext(Dispatchers.IO) {
+                romRepository.scanRomFolder(context, folderUri).mapNotNull { rom ->
+                    val emulatorPackage = rom.matchingEmulator?.packageName ?: return@mapNotNull null
+                    val label = rom.name.substringBeforeLast('.')
+                    val icon = try {
+                        context.packageManager.getApplicationIcon(emulatorPackage)
+                    } catch (e: Exception) {
+                        try {
+                            context.packageManager.getApplicationIcon(context.packageName)
+                        } catch (e2: Exception) {
+                            null
+                        }
+                    } ?: return@mapNotNull null
+
+                    AppInfo(
+                        label = label,
+                        packageName = RomRepository.buildPackageName(emulatorPackage, label, rom.uriString),
+                        icon = icon
+                    )
+                }
+            }
+
+            libraryRepository.saveApps(romApps)
+            onResult(romApps.size)
+        }
+    }
+
     fun removeApp(packageName: String) {
         viewModelScope.launch {
             libraryRepository.removeApp(packageName)
+            deleteMetadataCaches(setOf(packageName))
         }
     }
 }

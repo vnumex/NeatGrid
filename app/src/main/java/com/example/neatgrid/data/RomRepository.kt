@@ -19,7 +19,82 @@ data class RomData(
     val uriString: String
 )
 
+data class RomRelatedFile(
+    val name: String,
+    val uriString: String
+)
+
 class RomRepository {
+
+    fun romExists(context: Context, uriString: String): Boolean {
+        return try {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null,
+                null,
+                null
+            )?.use { cursor -> cursor.moveToFirst() } == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun findRelatedFiles(
+        context: Context,
+        folderUriString: String,
+        romLabels: Set<String>
+    ): Map<String, List<RomRelatedFile>> {
+        if (folderUriString.isEmpty() || romLabels.isEmpty()) return emptyMap()
+
+        val labelsByLowercase = romLabels.associateBy { it.lowercase(Locale.ROOT) }
+        val matches = mutableMapOf<String, MutableList<RomRelatedFile>>()
+
+        try {
+            val rootUri = Uri.parse(folderUriString)
+            val rootId = DocumentsContract.getTreeDocumentId(rootUri)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, rootId)
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+
+            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(mimeCol) == DocumentsContract.Document.MIME_TYPE_DIR) continue
+
+                    val name = cursor.getString(nameCol)
+                    val lowerName = name.lowercase(Locale.ROOT)
+                    val matchedLabel = labelsByLowercase.entries.firstOrNull { (lowerLabel, _) ->
+                        lowerName.startsWith("$lowerLabel.") && isSaveFileSuffix(lowerName.removePrefix("$lowerLabel."))
+                    }?.value ?: continue
+                    val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, cursor.getString(idCol))
+                    matches.getOrPut(matchedLabel) { mutableListOf() }
+                        .add(RomRelatedFile(name, fileUri.toString()))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return matches
+    }
+
+    fun deleteRelatedFiles(context: Context, files: List<RomRelatedFile>): Int {
+        return files.count { file ->
+            try {
+                DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(file.uriString))
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
 
     fun scanRomFolder(context: Context, folderUriString: String): List<RomFile> {
         if (folderUriString.isEmpty()) return emptyList()
@@ -72,6 +147,17 @@ class RomRepository {
     }
 
     companion object {
+        private val SAVE_FILE_EXTENSIONS = setOf(
+            "sav", "srm", "dsv", "mcr", "mcd", "mem", "rtc", "eep", "fla", "nv", "ram"
+        )
+
+        internal fun isSaveFileSuffix(suffix: String): Boolean {
+            val extension = suffix.substringBefore('.')
+            return extension in SAVE_FILE_EXTENSIONS ||
+                extension.startsWith("state") ||
+                extension.matches(Regex("st[0-9]+"))
+        }
+
         fun buildPackageName(emulatorPackage: String, label: String, uri: String): String {
             return "rom:$emulatorPackage|$label|$uri"
         }

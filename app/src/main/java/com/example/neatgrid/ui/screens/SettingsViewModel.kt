@@ -26,6 +26,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    val dynamicColorEnabled: StateFlow<Boolean> = settingsManager.dynamicColorFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    fun setDynamicColor(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveDynamicColor(enabled)
+        }
+    }
+
+    val amoledBlackEnabled: StateFlow<Boolean> = settingsManager.amoledBlackFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun setAmoledBlack(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveAmoledBlack(enabled)
+        }
+    }
+
     val appsPerRow: StateFlow<Int> = settingsManager.appsPerRowFlow
         .stateIn(
             scope = viewModelScope,
@@ -36,6 +62,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAppsPerRow(count: Int) {
         viewModelScope.launch {
             settingsManager.saveAppsPerRow(count)
+        }
+    }
+
+    val showGameNames: StateFlow<Boolean> = settingsManager.showGameNamesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    fun setShowGameNames(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveShowGameNames(enabled)
+        }
+    }
+
+    val roundedCovers: StateFlow<Boolean> = settingsManager.roundedCoversFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
+
+    fun setRoundedCovers(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveRoundedCovers(enabled)
         }
     }
 

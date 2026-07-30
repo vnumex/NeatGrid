@@ -81,6 +81,7 @@ enum class AddScreenMode {
 fun AddGameScreen(
     libraryViewModel: LibraryViewModel,
     viewModel: AddGameViewModel = viewModel(),
+    onAutoDetectGames: () -> Unit,
     onAdded: () -> Unit
 ) {
     val apps by viewModel.appsList.collectAsState()
@@ -100,7 +101,7 @@ fun AddGameScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             try {
                 context.contentResolver.takePersistableUriPermission(uri, flags)
                 viewModel.setRomFolder(uri.toString())
@@ -245,6 +246,7 @@ fun AddGameScreen(
                 when (currentMode) {
                     AddScreenMode.CHOOSE_TYPE -> {
                         ChooseTypeLayout(
+                            onAutoDetectGames = onAutoDetectGames,
                             onChooseApps = {
                                 currentMode = AddScreenMode.ADD_APPS
                                 viewModel.scanApps()
@@ -445,6 +447,7 @@ fun AddGameScreen(
 
 @Composable
 fun ChooseTypeLayout(
+    onAutoDetectGames: () -> Unit,
     onChooseApps: () -> Unit,
     onChooseRoms: () -> Unit
 ) {
@@ -469,6 +472,45 @@ fun ChooseTypeLayout(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(40.dp))
+
+        Card(
+            onClick = onAutoDetectGames,
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Detect Installed Games",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Find installed apps marked as games and choose which ones to keep.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
 
         Card(
             onClick = onChooseApps,

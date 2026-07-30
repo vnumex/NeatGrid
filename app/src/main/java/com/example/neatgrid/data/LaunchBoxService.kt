@@ -9,36 +9,22 @@ import java.net.URLEncoder
 class LaunchBoxService {
 
     suspend fun searchGames(query: String): List<GameMetadata> = withContext(Dispatchers.IO) {
-        try {
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val urlSpec = "https://gamesdb.launchbox-app.com/games/results/$encodedQuery"
-            
-            val doc = Jsoup.connect(urlSpec)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .timeout(10000)
-                .get()
-
-            parseSearchResults(doc)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val urlSpec = "https://gamesdb.launchbox-app.com/games/results/$encodedQuery"
+        val doc = Jsoup.connect(urlSpec)
+            .userAgent(USER_AGENT)
+            .timeout(10000)
+            .get()
+        parseSearchResults(doc)
     }
 
     suspend fun fetchGameDetails(detailsUrlSuffix: String, basicMetadata: GameMetadata): GameMetadata = withContext(Dispatchers.IO) {
-        try {
-            val urlSpec = "https://gamesdb.launchbox-app.com/games/details/$detailsUrlSuffix"
-            
-            val doc = Jsoup.connect(urlSpec)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .timeout(10000)
-                .get()
-
-            parseGameDetails(doc, basicMetadata)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            basicMetadata
-        }
+        val urlSpec = "https://gamesdb.launchbox-app.com/games/details/$detailsUrlSuffix"
+        val doc = Jsoup.connect(urlSpec)
+            .userAgent(USER_AGENT)
+            .timeout(10000)
+            .get()
+        parseGameDetails(doc, basicMetadata)
     }
 
     fun parseSearchResults(doc: Document): List<GameMetadata> {
@@ -66,19 +52,17 @@ class LaunchBoxService {
             val ratingRaw = rateitEl?.attr("data-rateit-value")?.toDoubleOrNull()
             val ratingPercentage = ratingRaw?.let { it * 20.0 } // 3.94 * 20 = 78.8%
 
-            // Summary will temporarily hold the details URL suffix using format "launchbox:<detailsUrlSuffix>"
-            val summary = "launchbox:$detailsUrlSuffix"
-
             results.add(
                 GameMetadata(
                     title = title,
-                    summary = summary,
+                    summary = null,
                     rating = ratingPercentage,
                     releaseDate = releaseDate,
                     genres = emptyList(),
                     platforms = if (platform.isNotEmpty()) listOf(platform) else emptyList(),
                     coverUrl = coverUrl,
-                    screenshotUrls = emptyList()
+                    screenshotUrls = emptyList(),
+                    sourceId = detailsUrlSuffix
                 )
             )
         }
@@ -210,5 +194,9 @@ class LaunchBoxService {
             coverUrl = coverUrl,
             screenshotUrls = screenshots
         )
+    }
+
+    private companion object {
+        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
     }
 }

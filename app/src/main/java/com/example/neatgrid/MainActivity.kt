@@ -12,17 +12,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.neatgrid.ui.components.BottomNavItem
 import com.example.neatgrid.ui.components.BottomNavigationBar
+import com.example.neatgrid.ui.components.DetectedGamesDialog
+import com.example.neatgrid.ui.components.LibrarySyncEffect
+import com.example.neatgrid.ui.components.MissingRomDialog
 import com.example.neatgrid.ui.screens.AddGameScreen
 import com.example.neatgrid.ui.screens.LibraryScreen
 import com.example.neatgrid.ui.screens.LibraryViewModel
@@ -49,13 +55,28 @@ class MainActivity : ComponentActivity() {
                 }
             )
             val appsPerRow by settingsViewModel.appsPerRow.collectAsStateWithLifecycle()
+            val showGameNames by settingsViewModel.showGameNames.collectAsStateWithLifecycle()
+            val roundedCovers by settingsViewModel.roundedCovers.collectAsStateWithLifecycle()
             val romFolderUri by settingsViewModel.romFolder.collectAsStateWithLifecycle()
+            val detectedGameCandidates by libraryViewModel.detectedGameCandidates.collectAsStateWithLifecycle()
+            val missingRomPrompts by libraryViewModel.missingRomPrompts.collectAsStateWithLifecycle()
+            LibrarySyncEffect(libraryViewModel)
 
             val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
+            val dynamicColorEnabled by settingsViewModel.dynamicColorEnabled.collectAsStateWithLifecycle()
+            val amoledBlackEnabled by settingsViewModel.amoledBlackEnabled.collectAsStateWithLifecycle()
             val isDarkTheme = when (selectedThemeIndex) {
                 1 -> false
                 2 -> true
                 else -> isSystemInDarkTheme()
+            }
+            val view = LocalView.current
+
+            SideEffect {
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !isDarkTheme
+                    isAppearanceLightNavigationBars = !isDarkTheme
+                }
             }
 
             val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -66,7 +87,11 @@ class MainActivity : ComponentActivity() {
                 BottomNavItem.Settings.route
             )
 
-            NeatGridTheme(darkTheme = isDarkTheme) {
+            NeatGridTheme(
+                darkTheme = isDarkTheme,
+                dynamicColor = dynamicColorEnabled,
+                amoledBlack = amoledBlackEnabled
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -87,6 +112,8 @@ class MainActivity : ComponentActivity() {
                                     LibraryScreen(
                                         viewModel = libraryViewModel,
                                         columns = appsPerRow,
+                                        showGameNames = showGameNames,
+                                        roundedCovers = roundedCovers,
                                         onAppClick = { packageName ->
                                             val encoded = java.net.URLEncoder.encode(packageName, "UTF-8")
                                             navController.navigate("game_details/$encoded")
@@ -118,6 +145,13 @@ class MainActivity : ComponentActivity() {
                                 Box(modifier = Modifier.padding(innerPadding)) {
                                     AddGameScreen(
                                         libraryViewModel = libraryViewModel,
+                                        onAutoDetectGames = {
+                                            libraryViewModel.detectInstalledGames { detectedCount ->
+                                                if (detectedCount == 0) {
+                                                    Toast.makeText(applicationContext, "No new installed games found", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
                                         onAdded = { navController.navigate(BottomNavItem.Library.route) })
                                 }
                             }
@@ -126,10 +160,36 @@ class MainActivity : ComponentActivity() {
                                     SettingsScreen(
                                         selectedThemeIndex = selectedThemeIndex,
                                         onThemeChange = { settingsViewModel.setTheme(it) },
+                                        dynamicColorEnabled = dynamicColorEnabled,
+                                        onDynamicColorChange = { settingsViewModel.setDynamicColor(it) },
+                                        darkThemeEnabled = isDarkTheme,
+                                        amoledBlackEnabled = amoledBlackEnabled,
+                                        onAmoledBlackChange = { settingsViewModel.setAmoledBlack(it) },
                                         selectedAppsPerRow = appsPerRow,
                                         onAppsPerRowChange = { settingsViewModel.setAppsPerRow(it) },
+                                        showGameNames = showGameNames,
+                                        onShowGameNamesChange = settingsViewModel::setShowGameNames,
+                                        roundedCovers = roundedCovers,
+                                        onRoundedCoversChange = settingsViewModel::setRoundedCovers,
                                         selectedRomFolderUri = romFolderUri,
-                                        onRomFolderChange = { settingsViewModel.setRomFolder(it) }
+                                        onRomFolderChange = { settingsViewModel.setRomFolder(it) },
+                                        onDetectInstalledGames = {
+                                            libraryViewModel.detectInstalledGames { detectedCount ->
+                                                if (detectedCount == 0) {
+                                                    Toast.makeText(applicationContext, "No new installed games found", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        onScanRoms = {
+                                            libraryViewModel.scanConfiguredRomFolder { importedCount ->
+                                                val message = if (importedCount > 0) {
+                                                    "Imported $importedCount ROMs"
+                                                } else {
+                                                    "No compatible ROMs found"
+                                                }
+                                                Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -146,11 +206,45 @@ class MainActivity : ComponentActivity() {
                                 GameDetailsScreen(
                                     packageName = packageName,
                                     onBack = { navController.popBackStack() },
+                                    onMetadataChanged = libraryViewModel::refreshLibrary,
                                     viewModel = detailsViewModel
                                 )
                             }
                         }
                     }
+                }
+
+                if (detectedGameCandidates.isNotEmpty()) {
+                    DetectedGamesDialog(
+                        games = detectedGameCandidates,
+                        onConfirm = { keptPackageNames, excludedPackageNames ->
+                            libraryViewModel.resolveDetectedGames(keptPackageNames, excludedPackageNames)
+                            val message = if (keptPackageNames.isNotEmpty()) {
+                                "Added ${keptPackageNames.size} games"
+                            } else {
+                                "Excluded ${excludedPackageNames.size} games"
+                            }
+                            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+                        },
+                        onDismiss = { libraryViewModel.dismissDetectedGames() }
+                    )
+                } else if (missingRomPrompts.isNotEmpty()) {
+                    MissingRomDialog(
+                        prompt = missingRomPrompts.first(),
+                        onKeepFiles = {
+                            libraryViewModel.resolveMissingRom(deleteRelatedFiles = false)
+                        },
+                        onDeleteFiles = {
+                            libraryViewModel.resolveMissingRom(deleteRelatedFiles = true) { deletedCount ->
+                                Toast.makeText(
+                                    applicationContext,
+                                    "Deleted $deletedCount related files",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onDismiss = libraryViewModel::dismissMissingRomPrompt
+                    )
                 }
             }
         }

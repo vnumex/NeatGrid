@@ -11,7 +11,8 @@ data class GameMetadata(
     val genres: List<String>,
     val platforms: List<String>,
     val coverUrl: String?,
-    val screenshotUrls: List<String>
+    val screenshotUrls: List<String>,
+    val sourceId: String? = null
 ) {
     fun toJson(): JSONObject {
         val json = JSONObject()
@@ -23,13 +24,18 @@ data class GameMetadata(
         json.put("platforms", JSONArray(platforms))
         json.put("coverUrl", coverUrl ?: JSONObject.NULL)
         json.put("screenshotUrls", JSONArray(screenshotUrls))
+        json.put("sourceId", sourceId ?: JSONObject.NULL)
         return json
     }
 
     companion object {
         fun fromJson(json: JSONObject): GameMetadata {
             val title = json.getString("title")
-            val summary = if (json.isNull("summary")) null else json.getString("summary")
+            val storedSummary = if (json.isNull("summary")) null else json.getString("summary")
+            val legacySourceId = storedSummary
+                ?.takeIf { it.startsWith("launchbox:") }
+                ?.substringAfter("launchbox:")
+            val summary = storedSummary?.takeUnless { it.startsWith("launchbox:") }
             val rating = if (json.isNull("rating")) null else json.getDouble("rating")
             val releaseDate = if (json.isNull("releaseDate")) null else json.getString("releaseDate")
 
@@ -46,6 +52,9 @@ data class GameMetadata(
             }
 
             val coverUrl = if (json.isNull("coverUrl")) null else json.getString("coverUrl")
+            val sourceId = json.optString("sourceId", "")
+                .takeIf { it.isNotEmpty() }
+                ?: legacySourceId
 
             val screenshotsList = mutableListOf<String>()
             val screenshotsArr = json.getJSONArray("screenshotUrls")
@@ -61,7 +70,8 @@ data class GameMetadata(
                 genres = genresList,
                 platforms = platformsList,
                 coverUrl = coverUrl,
-                screenshotUrls = screenshotsList
+                screenshotUrls = screenshotsList,
+                sourceId = sourceId
             )
         }
     }

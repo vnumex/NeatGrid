@@ -50,4 +50,13 @@ class RomRepositoryTest {
         assertNull(RomRepository.parse("com.example.game"))
         assertNull(RomRepository.parse("rom:short_string"))
     }
+
+    @Test
+    fun testSaveFileSuffix_matchesOnlyKnownSaveFormats() {
+        assertTrue(RomRepository.isSaveFileSuffix("sav"))
+        assertTrue(RomRepository.isSaveFileSuffix("state3"))
+        assertTrue(RomRepository.isSaveFileSuffix("st2"))
+        assertFalse(RomRepository.isSaveFileSuffix("iso"))
+        assertFalse(RomRepository.isSaveFileSuffix("png"))
+    }
 }

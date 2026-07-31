@@ -12,7 +12,8 @@ data class GameMetadata(
     val platforms: List<String>,
     val coverUrl: String?,
     val screenshotUrls: List<String>,
-    val sourceId: String? = null
+    val sourceId: String? = null,
+    val backdropUrl: String? = null
 ) {
     fun toJson(): JSONObject {
         val json = JSONObject()
@@ -25,6 +26,7 @@ data class GameMetadata(
         json.put("coverUrl", coverUrl ?: JSONObject.NULL)
         json.put("screenshotUrls", JSONArray(screenshotUrls))
         json.put("sourceId", sourceId ?: JSONObject.NULL)
+        json.put("backdropUrl", backdropUrl ?: JSONObject.NULL)
         return json
     }
 
@@ -52,14 +54,26 @@ data class GameMetadata(
             }
 
             val coverUrl = if (json.isNull("coverUrl")) null else json.getString("coverUrl")
-            val sourceId = json.optString("sourceId", "")
-                .takeIf { it.isNotEmpty() }
-                ?: legacySourceId
+            val sourceId = if (json.isNull("sourceId")) {
+                legacySourceId
+            } else {
+                json.optString("sourceId", "").takeIf { it.isNotEmpty() } ?: legacySourceId
+            }
 
             val screenshotsList = mutableListOf<String>()
             val screenshotsArr = json.getJSONArray("screenshotUrls")
             for (i in 0 until screenshotsArr.length()) {
                 screenshotsList.add(screenshotsArr.getString(i))
+            }
+            val hasBackdropField = json.has("backdropUrl")
+            val storedBackdropUrl = if (json.isNull("backdropUrl")) {
+                null
+            } else {
+                json.optString("backdropUrl", "").takeIf { it.isNotEmpty() }
+            }
+            val backdropUrl = storedBackdropUrl ?: screenshotsList.firstOrNull().takeIf { !hasBackdropField }
+            if (!hasBackdropField && screenshotsList.isNotEmpty()) {
+                screenshotsList.removeAt(0)
             }
 
             return GameMetadata(
@@ -71,7 +85,8 @@ data class GameMetadata(
                 platforms = platformsList,
                 coverUrl = coverUrl,
                 screenshotUrls = screenshotsList,
-                sourceId = sourceId
+                sourceId = sourceId,
+                backdropUrl = backdropUrl
             )
         }
     }

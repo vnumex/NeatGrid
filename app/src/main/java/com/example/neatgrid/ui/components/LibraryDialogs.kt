@@ -1,15 +1,17 @@
 package com.example.neatgrid.ui.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -96,6 +98,7 @@ fun DetectedGamesDialog(
             color = MaterialTheme.colorScheme.background
         ) {
             Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
@@ -124,29 +127,38 @@ fun DetectedGamesDialog(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 3.dp
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
-                                .padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
-                            TextButton(onClick = onDismiss) {
-                                Text(text = "Not Now")
-                            }
-                            TextButton(
-                                onClick = { onConfirm(emptySet(), packageNames.toSet()) }
-                            ) {
-                                Text(text = "Exclude All")
-                            }
                             Button(
                                 onClick = {
                                     val excludedPackages = packageNames.toSet() - selectedPackages
                                     onConfirm(selectedPackages, excludedPackages)
-                                }
+                                },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(text = "Keep (${selectedPackages.size})")
+                                Text(text = "Keep Selected (${selectedPackages.size})")
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Not Now")
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(
+                                    onClick = { onConfirm(emptySet(), packageNames.toSet()) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Exclude All")
+                                }
                             }
                         }
                     }

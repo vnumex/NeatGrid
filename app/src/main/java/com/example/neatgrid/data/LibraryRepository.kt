@@ -76,9 +76,14 @@ class LibraryRepository(private val context: Context) {
     }
 
     suspend fun excludeDetectedGames(packageNames: Set<String>) {
+        if (packageNames.isEmpty()) return
         context.libraryDataStore.edit { preferences ->
-            val current = preferences[EXCLUDED_DETECTED_GAME_PACKAGES] ?: emptySet()
-            preferences[EXCLUDED_DETECTED_GAME_PACKAGES] = current + packageNames
+            val excluded = preferences[EXCLUDED_DETECTED_GAME_PACKAGES] ?: emptySet()
+            val saved = preferences[LIBRARY_PACKAGE_NAMES] ?: emptySet()
+            val hidden = preferences[HIDDEN_PACKAGE_NAMES] ?: emptySet()
+            preferences[EXCLUDED_DETECTED_GAME_PACKAGES] = excluded + packageNames
+            preferences[LIBRARY_PACKAGE_NAMES] = saved + packageNames
+            preferences[HIDDEN_PACKAGE_NAMES] = hidden + packageNames
         }
     }
 }

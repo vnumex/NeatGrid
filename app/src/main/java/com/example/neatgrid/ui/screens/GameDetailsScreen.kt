@@ -25,12 +25,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -61,17 +58,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.ImeAction
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.neatgrid.ui.components.GameMetadataEditor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -87,9 +80,10 @@ fun GameDetailsScreen(
     val error by viewModel.error.collectAsState()
 
     val context = LocalContext.current
-    var showOverrideDialog by remember { mutableStateOf(false) }
-    var showEditChoicesDialog by remember { mutableStateOf(false) }
-    var showManualEditDialog by remember { mutableStateOf(false) }
+    var showMetadataEditor by remember { mutableStateOf(false) }
+    val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+    val searchError by viewModel.searchError.collectAsState()
 
     LaunchedEffect(packageName) {
         viewModel.loadMetadata(packageName)
@@ -115,7 +109,7 @@ fun GameDetailsScreen(
                 },
                 actions = {
                     if (metadata != null) {
-                        IconButton(onClick = { showEditChoicesDialog = true }) {
+                        IconButton(onClick = { showMetadataEditor = true }) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = "Edit Metadata Match",
@@ -189,7 +183,7 @@ fun GameDetailsScreen(
                             Text("Try Again")
                         }
                         OutlinedButton(
-                            onClick = { showOverrideDialog = true },
+                            onClick = { showMetadataEditor = true },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Search, contentDescription = null)
@@ -225,7 +219,7 @@ fun GameDetailsScreen(
                             .fillMaxWidth()
                             .height(280.dp)
                     ) {
-                        val backdropUrl = game.screenshotUrls.firstOrNull() ?: game.coverUrl
+                        val backdropUrl = game.backdropUrl ?: game.screenshotUrls.firstOrNull() ?: game.coverUrl
                         if (backdropUrl != null) {
                             AsyncImage(
                                 model = backdropUrl,
@@ -466,301 +460,26 @@ fun GameDetailsScreen(
             }
         }
 
-        // Manual Override Search Dialog
-        if (showOverrideDialog) {
-            Dialog(onDismissRequest = { showOverrideDialog = false }) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(500.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
-                        var searchQuery by remember { mutableStateOf(metadata?.title ?: "") }
-                        val searchResults by viewModel.searchResults.collectAsState()
-                        val isSearching by viewModel.isSearching.collectAsState()
-                        val searchError by viewModel.searchError.collectAsState()
-                        val keyboardController = LocalSoftwareKeyboardController.current
-
-                        LaunchedEffect(Unit) {
-                            if (searchQuery.isNotEmpty()) {
-                                viewModel.searchOverride(searchQuery)
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Search LaunchBox Game",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            IconButton(
-                                onClick = { showOverrideDialog = false },
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close")
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            label = { Text("Game Title") },
-                            trailingIcon = {
-                                IconButton(onClick = { 
-                                    viewModel.searchOverride(searchQuery)
-                                    keyboardController?.hide()
-                                }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search")
-                                }
-                            },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { 
-                                viewModel.searchOverride(searchQuery)
-                                keyboardController?.hide()
-                            }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                            if (isSearching) {
-                                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                            } else if (searchError != null) {
-                                Text(
-                                    text = searchError.orEmpty(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.align(Alignment.Center).fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            } else if (searchResults.isEmpty()) {
-                                Text(
-                                    text = "No results found. Search above.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.align(Alignment.Center).fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                LazyColumn(
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(searchResults) { gameResult ->
-                                        Card(
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                            ),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    viewModel.applyOverride(
-                                                        packageName,
-                                                        gameResult
-                                                    )
-                                                    showOverrideDialog = false
-                                                }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                AsyncImage(
-                                                    model = gameResult.coverUrl,
-                                                    contentDescription = gameResult.title,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier
-                                                        .size(50.dp, 70.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                )
-                                                Spacer(modifier = Modifier.width(16.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = gameResult.title,
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        fontWeight = FontWeight.Bold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    val release = gameResult.releaseDate?.split("-")?.firstOrNull() ?: "TBA"
-                                                    val platformText = gameResult.platforms.firstOrNull() ?: "Unknown Platform"
-                                                    Text(
-                                                        text = "$platformText • $release",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        if (showMetadataEditor && metadata != null) {
+            GameMetadataEditor(
+                metadata = metadata!!,
+                searchResults = searchResults,
+                isSearching = isSearching,
+                searchError = searchError,
+                onSearch = viewModel::searchOverride,
+                onApplyMatch = { game ->
+                    viewModel.applyOverride(packageName, game) {
+                        onMetadataChanged()
                     }
-                }
-            }
-        }
-
-        // Choice Dialog
-        if (showEditChoicesDialog) {
-            AlertDialog(
-                onDismissRequest = { showEditChoicesDialog = false },
-                title = { Text("Edit Game Metadata", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-                text = {
-                    Text("Choose whether you want to search LaunchBox or manually enter game details.", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    showMetadataEditor = false
                 },
-                confirmButton = {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Button(
-                            onClick = {
-                                showEditChoicesDialog = false
-                                showOverrideDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Search LaunchBox Database")
-                        }
-                        Button(
-                            onClick = {
-                                showEditChoicesDialog = false
-                                showManualEditDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Edit Details Manually")
-                        }
-                        OutlinedButton(
-                            onClick = { showEditChoicesDialog = false },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Cancel")
-                        }
+                onSave = { game ->
+                    viewModel.updateMetadata(packageName, game) {
+                        onMetadataChanged()
                     }
+                    showMetadataEditor = false
                 },
-                dismissButton = null
-            )
-        }
-
-        // Manual Edit Dialog
-        if (showManualEditDialog && metadata != null) {
-            val game = metadata!!
-            var editTitle by remember { mutableStateOf(game.title) }
-            var editReleaseDate by remember { mutableStateOf(game.releaseDate ?: "") }
-            var editGenres by remember { mutableStateOf(game.genres.joinToString(", ")) }
-            var editPlatforms by remember { mutableStateOf(game.platforms.joinToString(", ")) }
-            var editSummary by remember { mutableStateOf(game.summary ?: "") }
-            var editCoverUrl by remember { mutableStateOf(game.coverUrl ?: "") }
-            var editBackdropUrl by remember { mutableStateOf(game.screenshotUrls.firstOrNull() ?: "") }
-
-            AlertDialog(
-                onDismissRequest = { showManualEditDialog = false },
-                title = { Text("Edit Game Details") },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = editTitle,
-                            onValueChange = { editTitle = it },
-                            label = { Text("Title") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editReleaseDate,
-                            onValueChange = { editReleaseDate = it },
-                            label = { Text("Release Date / Year") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editGenres,
-                            onValueChange = { editGenres = it },
-                            label = { Text("Genres (comma separated)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editPlatforms,
-                            onValueChange = { editPlatforms = it },
-                            label = { Text("Platforms (comma separated)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editCoverUrl,
-                            onValueChange = { editCoverUrl = it },
-                            label = { Text("Cover Image URL") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editBackdropUrl,
-                            onValueChange = { editBackdropUrl = it },
-                            label = { Text("Backdrop Image URL") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = editSummary,
-                            onValueChange = { editSummary = it },
-                            label = { Text("About / Description") },
-                            maxLines = 4,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val genresList = editGenres.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                            val platformsList = editPlatforms.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                            val screenshotsList = if (editBackdropUrl.isNotEmpty()) listOf(editBackdropUrl) else emptyList()
-
-                            val updatedGame = game.copy(
-                                title = editTitle,
-                                releaseDate = editReleaseDate.takeIf { it.isNotEmpty() },
-                                genres = genresList,
-                                platforms = platformsList,
-                                summary = editSummary.takeIf { it.isNotEmpty() },
-                                coverUrl = editCoverUrl.takeIf { it.isNotEmpty() },
-                                screenshotUrls = screenshotsList
-                            )
-                            viewModel.updateMetadata(packageName, updatedGame)
-                            showManualEditDialog = false
-                        }
-                    ) {
-                        Text("Save")
-                    }
-                },
-                dismissButton = {
-                    OutlinedButton(onClick = { showManualEditDialog = false }) {
-                        Text("Cancel")
-                    }
-                }
+                onDismiss = { showMetadataEditor = false }
             )
         }
     }

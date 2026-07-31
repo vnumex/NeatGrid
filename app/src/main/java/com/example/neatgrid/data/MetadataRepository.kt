@@ -79,7 +79,7 @@ class MetadataRepository(
     ) = withContext(Dispatchers.IO) {
         if (!metadataDirectory.exists()) metadataDirectory.mkdirs()
         val json = JSONObject()
-            .put("version", 2)
+            .put("version", 3)
             .put("status", cachedMetadata.status.name)
             .put("updatedAt", System.currentTimeMillis())
             .put("metadata", cachedMetadata.metadata.toJson())

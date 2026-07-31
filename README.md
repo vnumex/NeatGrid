@@ -4,6 +4,12 @@ NeatGrid is an Android game launcher and frontend for keeping installed games an
 
 The app is intended for people who use a mix of native Android games and external emulators and want a cleaner way to browse and launch them.
 
+## Screenshots
+
+| Library | Add Games |
+| --- | --- |
+| ![NeatGrid library](docs/images/library.png) | ![NeatGrid add games screen](docs/images/add-games.png) |
+
 ## Features
 
 - A single library for installed Android games and ROM files

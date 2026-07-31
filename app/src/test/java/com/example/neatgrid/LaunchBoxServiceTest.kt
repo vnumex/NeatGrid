@@ -87,6 +87,14 @@ class LaunchBoxServiceTest {
                     <img src="https://images.launchbox-app.com/gameplay1.jpg" />
                     <img src="https://images.launchbox-app.com/gameplay2.jpg" />
                 </div>
+                <h3>Banner</h3>
+                <div>
+                    <img src="https://images.launchbox-app.com/banner.jpg" />
+                </div>
+                <h3>Box - Back</h3>
+                <div>
+                    <img src="https://images.launchbox-app.com/box-back.jpg" />
+                </div>
             </body>
             </html>
         """.trimIndent()
@@ -116,9 +124,9 @@ class LaunchBoxServiceTest {
         assertEquals(2, gameDetails.genres.size)
         assertEquals("Action", gameDetails.genres[0])
         assertEquals("Platform", gameDetails.genres[1])
-        assertEquals(3, gameDetails.screenshotUrls.size)
-        assertEquals("https://images.launchbox-app.com/hero.jpg", gameDetails.screenshotUrls[0])
-        assertEquals("https://images.launchbox-app.com/gameplay1.jpg", gameDetails.screenshotUrls[1])
-        assertEquals("https://images.launchbox-app.com/gameplay2.jpg", gameDetails.screenshotUrls[2])
+        assertEquals("https://images.launchbox-app.com/hero.jpg", gameDetails.backdropUrl)
+        assertEquals(2, gameDetails.screenshotUrls.size)
+        assertEquals("https://images.launchbox-app.com/gameplay1.jpg", gameDetails.screenshotUrls[0])
+        assertEquals("https://images.launchbox-app.com/gameplay2.jpg", gameDetails.screenshotUrls[1])
     }
 }

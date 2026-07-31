@@ -77,6 +77,43 @@ class MetadataMatcherTest {
         assertEquals("2224-sonic-advance", metadata.sourceId)
     }
 
+    @Test
+    fun legacyFirstScreenshotMovesToBackdrop() {
+        val json = JSONObject()
+            .put("title", "Sonic Advance")
+            .put("summary", JSONObject.NULL)
+            .put("rating", JSONObject.NULL)
+            .put("releaseDate", JSONObject.NULL)
+            .put("genres", JSONArray())
+            .put("platforms", JSONArray())
+            .put("coverUrl", JSONObject.NULL)
+            .put(
+                "screenshotUrls",
+                JSONArray()
+                    .put("https://images.launchbox-app.com/hero.jpg")
+                    .put("https://images.launchbox-app.com/gameplay.jpg")
+            )
+
+        val metadata = GameMetadata.fromJson(json)
+
+        assertEquals("https://images.launchbox-app.com/hero.jpg", metadata.backdropUrl)
+        assertEquals(listOf("https://images.launchbox-app.com/gameplay.jpg"), metadata.screenshotUrls)
+    }
+
+    @Test
+    fun currentCacheKeepsScreenshotsSeparateFromBackdrop() {
+        val original = metadata("Sonic Advance").copy(
+            screenshotUrls = listOf("https://images.launchbox-app.com/gameplay.jpg"),
+            backdropUrl = null
+        )
+
+        val restored = GameMetadata.fromJson(original.toJson())
+
+        assertNull(restored.backdropUrl)
+        assertNull(restored.sourceId)
+        assertEquals(original.screenshotUrls, restored.screenshotUrls)
+    }
+
     private fun metadata(title: String, platform: String? = null) = GameMetadata(
         title = title,
         summary = null,

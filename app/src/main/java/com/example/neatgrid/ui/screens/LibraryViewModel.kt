@@ -120,6 +120,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     } else {
                         val cached = metadataRepository.readCached(packageName)?.metadata
                         app.copy(
+                            label = cached?.title ?: app.label,
                             coverUrl = cached?.coverUrl,
                             platform = cached?.platforms?.firstOrNull()
                         )
@@ -146,7 +147,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
                     val cached = metadataRepository.readCached(romPackage)?.metadata
                     AppInfo(
-                        label = romData.label,
+                        label = cached?.title ?: romData.label,
                         packageName = romPackage,
                         icon = icon,
                         coverUrl = cached?.coverUrl,
@@ -219,6 +220,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 items.map { item ->
                     if (item.packageName == packageName) {
                         item.copy(
+                            label = cachedMetadata.metadata.title,
                             coverUrl = cachedMetadata.metadata.coverUrl,
                             platform = cachedMetadata.metadata.platforms.firstOrNull()
                         )
@@ -297,13 +299,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             val excludedPackages = libraryRepository.excludedDetectedGamePackages.first()
             val detectedGames = withContext(Dispatchers.IO) {
                 appsRepository.getInstalledGames()
-                    .filter { app ->
-                        app.packageName !in savedPackages && app.packageName !in excludedPackages
-                    }
             }
+            val installedExcludedPackages = detectedGames
+                .map { it.packageName }
+                .filterTo(mutableSetOf()) { it in excludedPackages && it !in savedPackages }
+            libraryRepository.excludeDetectedGames(installedExcludedPackages)
 
-            _detectedGameCandidates.value = detectedGames
-            onResult?.invoke(detectedGames.size)
+            val candidates = detectedGames.filter { app ->
+                app.packageName !in savedPackages && app.packageName !in excludedPackages
+            }
+            _detectedGameCandidates.value = candidates
+            onResult?.invoke(candidates.size)
         }
     }
 

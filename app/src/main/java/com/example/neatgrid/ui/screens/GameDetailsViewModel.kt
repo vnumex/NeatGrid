@@ -160,7 +160,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun applyOverride(packageName: String, game: GameMetadata) {
+    fun applyOverride(packageName: String, game: GameMetadata, onSaved: () -> Unit = {}) {
         metadataJob?.cancel()
         val requestId = ++metadataRequestId
         metadataJob = viewModelScope.launch {
@@ -175,6 +175,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
                     CachedGameMetadata(gameWithDetails, MetadataCacheStatus.CUSTOM)
                 )
                 _metadata.value = gameWithDetails
+                onSaved()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -188,7 +189,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun updateMetadata(packageName: String, game: GameMetadata) {
+    fun updateMetadata(packageName: String, game: GameMetadata, onSaved: () -> Unit = {}) {
         metadataJob?.cancel()
         ++metadataRequestId
         metadataJob = viewModelScope.launch {
@@ -199,6 +200,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
                 )
                 _metadata.value = game
                 _error.value = null
+                onSaved()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

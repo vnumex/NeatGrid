@@ -150,27 +150,14 @@ class LaunchBoxService {
             }
         }
 
-        // 8. Screenshot URLs
         val screenshots = mutableListOf<String>()
-
-        // Try to add the hero backdrop image as the first screenshot (if present)
         val backdropImg = doc.selectFirst("main img.opacity-40") ?: doc.selectFirst("main img[class*=opacity]")
-        if (backdropImg != null) {
-            val backdropUrl = backdropImg.absUrl("src")
-            if (backdropUrl.isNotEmpty()) {
-                screenshots.add(backdropUrl)
-            }
-        }
+        val backdropUrl = backdropImg?.absUrl("src")?.takeIf { it.isNotEmpty() }
 
-        // Look for screenshots under: Screenshot - Gameplay, Screenshot - Title, Banner, Box - Back
         val headings = doc.select("h3")
         for (heading in headings) {
             val headingText = heading.text()
-            if (headingText.contains("Screenshot", ignoreCase = true) || 
-                headingText.contains("Banner", ignoreCase = true) || 
-                headingText.contains("Flyer", ignoreCase = true) || 
-                headingText.contains("Box - Back", ignoreCase = true)) {
-                
+            if (headingText.startsWith("Screenshot", ignoreCase = true)) {
                 val container = heading.nextElementSibling()
                 if (container != null) {
                     val imgs = container.select("img")
@@ -192,7 +179,8 @@ class LaunchBoxService {
             genres = genres,
             platforms = platforms,
             coverUrl = coverUrl,
-            screenshotUrls = screenshots
+            screenshotUrls = screenshots,
+            backdropUrl = backdropUrl
         )
     }
 

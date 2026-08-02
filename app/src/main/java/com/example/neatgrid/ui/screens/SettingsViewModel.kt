@@ -104,6 +104,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    val scanRomSubfolders: StateFlow<Boolean> = settingsManager.scanRomSubfoldersFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun setScanRomSubfolders(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveScanRomSubfolders(enabled)
+        }
+    }
+
     val rawgApiKey: StateFlow<String> = settingsManager.rawgApiKeyFlow
         .stateIn(
             scope = viewModelScope,
@@ -114,6 +127,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setRawgApiKey(apiKey: String) {
         viewModelScope.launch {
             settingsManager.saveRawgApiKey(apiKey)
+        }
+    }
+
+    val emulatorSelections: StateFlow<Map<String, String>> = settingsManager.emulatorSelectionsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
+        )
+
+    fun setEmulatorSelection(system: String, packageName: String) {
+        viewModelScope.launch {
+            settingsManager.saveEmulatorSelection(system, packageName)
         }
     }
 }

@@ -16,27 +16,27 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.example.neatgrid.data.RomRepository
 import com.example.neatgrid.ui.components.BottomNavItem
 import com.example.neatgrid.ui.components.BottomNavigationBar
 import com.example.neatgrid.ui.components.DetectedGamesDialog
 import com.example.neatgrid.ui.components.LibrarySyncEffect
 import com.example.neatgrid.ui.components.MissingRomDialog
 import com.example.neatgrid.ui.screens.AddGameScreen
+import com.example.neatgrid.ui.screens.GameDetailsScreen
+import com.example.neatgrid.ui.screens.GameDetailsViewModel
 import com.example.neatgrid.ui.screens.LibraryScreen
 import com.example.neatgrid.ui.screens.LibraryViewModel
 import com.example.neatgrid.ui.screens.SettingsScreen
 import com.example.neatgrid.ui.screens.SettingsViewModel
-import com.example.neatgrid.ui.screens.GameDetailsScreen
-import com.example.neatgrid.ui.screens.GameDetailsViewModel
-import com.example.neatgrid.data.RomRepository
 import com.example.neatgrid.ui.theme.NeatGridTheme
 
 class MainActivity : ComponentActivity() {
@@ -57,7 +57,9 @@ class MainActivity : ComponentActivity() {
             val appsPerRow by settingsViewModel.appsPerRow.collectAsStateWithLifecycle()
             val showGameNames by settingsViewModel.showGameNames.collectAsStateWithLifecycle()
             val roundedCovers by settingsViewModel.roundedCovers.collectAsStateWithLifecycle()
+            val emulatorSelections by settingsViewModel.emulatorSelections.collectAsStateWithLifecycle()
             val romFolderUri by settingsViewModel.romFolder.collectAsStateWithLifecycle()
+            val scanRomSubfolders by settingsViewModel.scanRomSubfolders.collectAsStateWithLifecycle()
             val detectedGameCandidates by libraryViewModel.detectedGameCandidates.collectAsStateWithLifecycle()
             val missingRomPrompts by libraryViewModel.missingRomPrompts.collectAsStateWithLifecycle()
             LibrarySyncEffect(libraryViewModel)
@@ -171,8 +173,12 @@ class MainActivity : ComponentActivity() {
                                         onShowGameNamesChange = settingsViewModel::setShowGameNames,
                                         roundedCovers = roundedCovers,
                                         onRoundedCoversChange = settingsViewModel::setRoundedCovers,
+                                        emulatorSelections = emulatorSelections,
+                                        onEmulatorSelectionChange = settingsViewModel::setEmulatorSelection,
                                         selectedRomFolderUri = romFolderUri,
                                         onRomFolderChange = { settingsViewModel.setRomFolder(it) },
+                                        scanRomSubfolders = scanRomSubfolders,
+                                        onScanRomSubfoldersChange = settingsViewModel::setScanRomSubfolders,
                                         onDetectInstalledGames = {
                                             libraryViewModel.detectInstalledGames { detectedCount ->
                                                 if (detectedCount == 0) {

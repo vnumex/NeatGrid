@@ -96,7 +96,11 @@ class RomRepository {
         }
     }
 
-    fun scanRomFolder(context: Context, folderUriString: String): List<RomFile> {
+    fun scanRomFolder(
+        context: Context,
+        folderUriString: String,
+        scanSubfolders: Boolean = false
+    ): List<RomFile> {
         if (folderUriString.isEmpty()) return emptyList()
         val result = mutableListOf<RomFile>()
         
@@ -107,36 +111,50 @@ class RomRepository {
             } catch (e: Exception) {
                 DocumentsContract.getDocumentId(rootUri)
             }
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, rootId)
-            
             val projection = arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE
             )
-            
-            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                
-                while (cursor.moveToNext()) {
-                    val docId = cursor.getString(idCol)
-                    val name = cursor.getString(nameCol)
-                    val mimeType = cursor.getString(mimeCol)
-                    
-                    if (mimeType != DocumentsContract.Document.MIME_TYPE_DIR) {
-                        val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, docId)
-                        val extension = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
-                        val matchingEmulator = Emulator.getEmulatorForExtension(context, extension)
-                        result.add(
-                            RomFile(
-                                name = name,
-                                uriString = fileUri.toString(),
-                                extension = extension,
-                                matchingEmulator = matchingEmulator
-                            )
-                        )
+
+            val pendingDirectoryIds = ArrayDeque<String>()
+            pendingDirectoryIds.add(rootId)
+            while (pendingDirectoryIds.isNotEmpty()) {
+                val directoryId = pendingDirectoryIds.removeFirst()
+                val childrenUri =
+                    DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, directoryId)
+                context.contentResolver.query(childrenUri, projection, null, null, null)
+                    ?.use { cursor ->
+                        val idCol =
+                            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                        val nameCol =
+                            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                        val mimeCol =
+                            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+                        while (cursor.moveToNext()) {
+                            val docId = cursor.getString(idCol)
+                            val name = cursor.getString(nameCol)
+                            val mimeType = cursor.getString(mimeCol)
+
+                            if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                                if (scanSubfolders) pendingDirectoryIds.add(docId)
+                            } else {
+                                val fileUri =
+                                    DocumentsContract.buildDocumentUriUsingTree(rootUri, docId)
+                                val extension =
+                                    name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+                                val matchingEmulator =
+                                    Emulator.getEmulatorForExtension(context, extension)
+                                result.add(
+                                    RomFile(
+                                        name = name,
+                                        uriString = fileUri.toString(),
+                                        extension = extension,
+                                        matchingEmulator = matchingEmulator
+                                    )
+                                )
+                            }
                     }
                 }
             }

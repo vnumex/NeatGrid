@@ -9,8 +9,8 @@ import com.example.neatgrid.data.Emulator
 import com.example.neatgrid.data.LibraryRepository
 import com.example.neatgrid.data.LibrarySortMode
 import com.example.neatgrid.data.MetadataRepository
-import com.example.neatgrid.data.RomRepository
 import com.example.neatgrid.data.RomRelatedFile
+import com.example.neatgrid.data.RomRepository
 import com.example.neatgrid.data.SettingsManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -394,6 +394,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun scanConfiguredRomFolder(onResult: (Int) -> Unit) {
         viewModelScope.launch {
             val folderUri = settingsManager.romFolderFlow.first()
+            val scanSubfolders = settingsManager.scanRomSubfoldersFlow.first()
             if (folderUri.isEmpty()) {
                 onResult(0)
                 return@launch
@@ -401,7 +402,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
             val context = getApplication<Application>()
             val romApps = withContext(Dispatchers.IO) {
-                romRepository.scanRomFolder(context, folderUri).mapNotNull { rom ->
+                romRepository.scanRomFolder(context, folderUri, scanSubfolders).mapNotNull { rom ->
                     val emulatorPackage = rom.matchingEmulator?.packageName ?: return@mapNotNull null
                     val label = rom.name.substringBeforeLast('.')
                     val icon = try {

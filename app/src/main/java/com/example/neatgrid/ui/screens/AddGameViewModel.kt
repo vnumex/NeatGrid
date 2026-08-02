@@ -57,9 +57,10 @@ class AddGameViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _isLoading.value = true
             val uri = settingsManager.romFolderFlow.first()
+            val scanSubfolders = settingsManager.scanRomSubfoldersFlow.first()
             _romFolderUri.value = uri
             if (uri.isNotEmpty()) {
-                _romsList.value = romRepository.scanRomFolder(getApplication(), uri)
+                _romsList.value = romRepository.scanRomFolder(getApplication(), uri, scanSubfolders)
             } else {
                 _romsList.value = emptyList()
             }
@@ -72,8 +73,10 @@ class AddGameViewModel(application: Application) : AndroidViewModel(application)
             settingsManager.saveRomFolder(uriString)
             _romFolderUri.value = uriString
             if (uriString.isNotEmpty()) {
+                val scanSubfolders = settingsManager.scanRomSubfoldersFlow.first()
                 _isLoading.value = true
-                _romsList.value = romRepository.scanRomFolder(getApplication(), uriString)
+                _romsList.value =
+                    romRepository.scanRomFolder(getApplication(), uriString, scanSubfolders)
                 _isLoading.value = false
             }
         }

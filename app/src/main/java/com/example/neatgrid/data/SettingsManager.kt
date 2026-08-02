@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -26,6 +27,8 @@ class SettingsManager(private val context: Context) {
         val LIBRARY_SORT_KEY = stringPreferencesKey("library_sort_mode")
         val SHOW_GAME_NAMES_KEY = booleanPreferencesKey("show_game_names")
         val ROUNDED_COVERS_KEY = booleanPreferencesKey("rounded_covers")
+        val EMULATOR_SELECTIONS_KEY = stringSetPreferencesKey("emulator_selections")
+        val SCAN_ROM_SUBFOLDERS_KEY = booleanPreferencesKey("scan_rom_subfolders")
     }
 
     val appsPerRowFlow: Flow<Int> = context.dataStore.data
@@ -126,6 +129,15 @@ class SettingsManager(private val context: Context) {
         }
     }
 
+    val scanRomSubfoldersFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences -> preferences[SCAN_ROM_SUBFOLDERS_KEY] ?: false }
+
+    suspend fun saveScanRomSubfolders(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SCAN_ROM_SUBFOLDERS_KEY] = enabled
+        }
+    }
+
     val rawgApiKeyFlow: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[RAWG_API_KEY_KEY] ?: ""
@@ -134,6 +146,32 @@ class SettingsManager(private val context: Context) {
     suspend fun saveRawgApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
             preferences[RAWG_API_KEY_KEY] = apiKey
+        }
+    }
+
+    val emulatorSelectionsFlow: Flow<Map<String, String>> = context.dataStore.data
+        .map { preferences ->
+            preferences[EMULATOR_SELECTIONS_KEY].orEmpty().mapNotNull { entry ->
+                val separator = entry.indexOf('|')
+                if (separator <= 0 || separator == entry.lastIndex) {
+                    null
+                } else {
+                    entry.substring(0, separator) to entry.substring(separator + 1)
+                }
+            }.toMap()
+        }
+
+    suspend fun saveEmulatorSelection(system: String, packageName: String) {
+        context.dataStore.edit { preferences ->
+            val selections = preferences[EMULATOR_SELECTIONS_KEY].orEmpty()
+                .filterNot { it.startsWith("$system|") }
+                .toMutableSet()
+            if (packageName == "automatic") {
+                selections.removeIf { it.startsWith("$system|") }
+            } else {
+                selections += "$system|$packageName"
+            }
+            preferences[EMULATOR_SELECTIONS_KEY] = selections
         }
     }
 }

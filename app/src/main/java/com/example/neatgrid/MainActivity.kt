@@ -60,6 +60,9 @@ class MainActivity : ComponentActivity() {
             val emulatorSelections by settingsViewModel.emulatorSelections.collectAsStateWithLifecycle()
             val romFolderUri by settingsViewModel.romFolder.collectAsStateWithLifecycle()
             val scanRomSubfolders by settingsViewModel.scanRomSubfolders.collectAsStateWithLifecycle()
+            val metadataSourceOrder by settingsViewModel.metadataSourceOrder.collectAsStateWithLifecycle()
+            val iidbApiKey by settingsViewModel.iidbApiKey.collectAsStateWithLifecycle()
+            val rawgApiKey by settingsViewModel.rawgApiKey.collectAsStateWithLifecycle()
             val detectedGameCandidates by libraryViewModel.detectedGameCandidates.collectAsStateWithLifecycle()
             val missingRomPrompts by libraryViewModel.missingRomPrompts.collectAsStateWithLifecycle()
             LibrarySyncEffect(libraryViewModel)
@@ -195,7 +198,14 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
                                             }
-                                        }
+                                        },
+                                        metadataSourceOrder = metadataSourceOrder,
+                                        onMoveMetadataSource = settingsViewModel::moveMetadataSource,
+                                        iidbApiKey = iidbApiKey,
+                                        onIidbApiKeyChange = settingsViewModel::setIidbApiKey,
+                                        onVerifyIidbKey = settingsViewModel::verifyIidbKey,
+                                        rawgApiKey = rawgApiKey,
+                                        onRawgApiKeyChange = settingsViewModel::setRawgApiKey
                                     )
                                 }
                             }

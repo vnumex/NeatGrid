@@ -17,6 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.neatgrid.data.Emulator
+import com.example.neatgrid.data.MetadataSource
+import com.example.neatgrid.ui.components.ApiKeyDialog
+import com.example.neatgrid.ui.components.InformationCreditsDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,12 +77,22 @@ fun SettingsScreen(
     scanRomSubfolders: Boolean,
     onScanRomSubfoldersChange: (Boolean) -> Unit,
     onDetectInstalledGames: () -> Unit,
-    onScanRoms: () -> Unit
+    onScanRoms: () -> Unit,
+    metadataSourceOrder: List<MetadataSource>,
+    onMoveMetadataSource: (Int, Int) -> Unit,
+    iidbApiKey: String,
+    onIidbApiKeyChange: (String) -> Unit,
+    onVerifyIidbKey: (String, (Result<String>) -> Unit) -> Unit,
+    rawgApiKey: String,
+    onRawgApiKeyChange: (String) -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     val themeOptions = listOf("System", "Light", "Dark")
     val context = LocalContext.current
     var selectedSystem by remember { mutableStateOf<String?>(null) }
+    var showIidbKeyDialog by remember { mutableStateOf(false) }
+    var showRawgKeyDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -259,6 +274,73 @@ fun SettingsScreen(
             )
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
 
+            SectionHeader("Metadata")
+            metadataSourceOrder.forEachIndexed { index, source ->
+                val statusSubtitle = when (source) {
+                    MetadataSource.IIDB -> {
+                        if (iidbApiKey.isNotBlank()) {
+                            if (index == 0) "Default · API key configured" else "API key configured"
+                        } else {
+                            "API key required"
+                        }
+                    }
+                    MetadataSource.LAUNCHBOX -> "No API key required"
+                    MetadataSource.RAWG -> {
+                        if (rawgApiKey.isNotBlank()) {
+                            if (index == 0) "Default · API key configured" else "API key configured"
+                        } else {
+                            "API key required"
+                        }
+                    }
+                }
+                ListItem(
+                    modifier = Modifier.padding(start = 8.dp),
+                    headlineContent = { Text(text = "${index + 1}. ${source.displayName}") },
+                    supportingContent = { Text(text = statusSubtitle) },
+                    trailingContent = {
+                        Row {
+                            IconButton(
+                                enabled = index > 0,
+                                onClick = { onMoveMetadataSource(index, -1) }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Move ${source.displayName} up"
+                                )
+                            }
+                            IconButton(
+                                enabled = index < metadataSourceOrder.lastIndex,
+                                onClick = { onMoveMetadataSource(index, 1) }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Move ${source.displayName} down"
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+            ListItem(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable { showIidbKeyDialog = true },
+                headlineContent = { Text(text = "iiDB API Key") },
+                supportingContent = {
+                    Text(text = if (iidbApiKey.isNotBlank()) "Configured" else "Not configured")
+                }
+            )
+            ListItem(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable { showRawgKeyDialog = true },
+                headlineContent = { Text(text = "RAWG API Key") },
+                supportingContent = {
+                    Text(text = if (rawgApiKey.isNotBlank()) "Configured" else "Not configured")
+                }
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             SectionHeader("Emulators")
             EmulatorGroup(
                 title = "Nintendo Consoles",
@@ -331,6 +413,12 @@ fun SettingsScreen(
                 }
             )
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
+            ListItem(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable { showInfoDialog = true },
+                headlineContent = { Text(text = "Information & Credits",fontWeight = FontWeight.SemiBold) }
+            )
         }
     }
 
@@ -344,6 +432,50 @@ fun SettingsScreen(
                 selectedSystem = null
             },
             onDismiss = { selectedSystem = null }
+        )
+    }
+
+    if (showIidbKeyDialog) {
+        ApiKeyDialog(
+            title = "iiDB API Key",
+            currentKey = iidbApiKey,
+            helperText = "Get a free API key at accounts.iisu.network",
+            helperUrl = "https://accounts.iisu.network",
+            onVerify = onVerifyIidbKey,
+            onSave = { key ->
+                onIidbApiKeyChange(key)
+                showIidbKeyDialog = false
+            },
+            onDismiss = { showIidbKeyDialog = false }
+        )
+    }
+
+    if (showRawgKeyDialog) {
+        ApiKeyDialog(
+            title = "RAWG API Key",
+            currentKey = rawgApiKey,
+            helperText = "Get a free API key at rawg.io/apidocs",
+            helperUrl = "https://rawg.io/apidocs",
+            onVerify = null,
+            onSave = { key ->
+                onRawgApiKeyChange(key)
+                showRawgKeyDialog = false
+            },
+            onDismiss = { showRawgKeyDialog = false }
+        )
+    }
+
+    if (showInfoDialog) {
+        val appVersion = remember(context) {
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
+            } catch (_: Exception) {
+                "1.0"
+            }
+        }
+        InformationCreditsDialog(
+            appVersion = appVersion,
+            onDismiss = { showInfoDialog = false }
         )
     }
 }

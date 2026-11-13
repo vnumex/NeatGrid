@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neatgrid.data.SettingsManager
+import com.example.neatgrid.data.IidbService
+import com.example.neatgrid.data.MetadataSource
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -12,6 +14,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsManager = SettingsManager(application)
+    private val iidbService = IidbService()
 
     val themeIndex: StateFlow<Int> = settingsManager.themeIndexFlow
         .stateIn(
@@ -127,6 +130,45 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setRawgApiKey(apiKey: String) {
         viewModelScope.launch {
             settingsManager.saveRawgApiKey(apiKey)
+        }
+    }
+
+    val iidbApiKey: StateFlow<String> = settingsManager.iidbApiKeyFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ""
+        )
+
+    fun setIidbApiKey(apiKey: String) {
+        viewModelScope.launch {
+            settingsManager.saveIidbApiKey(apiKey)
+        }
+    }
+
+    fun verifyIidbKey(apiKey: String, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            onResult(iidbService.verifyKey(apiKey))
+        }
+    }
+
+    val metadataSourceOrder: StateFlow<List<MetadataSource>> = settingsManager.metadataSourceOrderFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = MetadataSource.DEFAULT_ORDER
+        )
+
+    fun moveMetadataSource(index: Int, delta: Int) {
+        val current = metadataSourceOrder.value
+        val targetIndex = index + delta
+        if (index !in current.indices || targetIndex !in current.indices || delta == 0) return
+        val updated = current.toMutableList()
+        val item = updated[index]
+        updated[index] = updated[targetIndex]
+        updated[targetIndex] = item
+        viewModelScope.launch {
+            settingsManager.saveMetadataSourceOrder(updated)
         }
     }
 

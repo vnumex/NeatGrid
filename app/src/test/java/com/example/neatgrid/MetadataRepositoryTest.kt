@@ -18,6 +18,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
@@ -256,6 +257,59 @@ class MetadataRepositoryTest {
     }
 
     @Test
+    fun search_throwsIOExceptionWhenAllActiveSourcesFailWithIOException() = runBlocking {
+        iidbHandler = { _, _ -> 500 to """{"error":"Server error"}""" }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            searchError = IOException("LaunchBox network error")
+        )
+        val repository = MetadataRepository(
+            metadataDirectory = tempDir,
+            service = fakeLaunchBox,
+            iidbService = iidbService,
+            rawgService = rawgService
+        ) {
+            MetadataConfig(
+                order = listOf(MetadataSource.IIDB, MetadataSource.LAUNCHBOX),
+                iidbApiKey = "iidb-secret",
+                rawgApiKey = ""
+            )
+        }
+
+        try {
+            repository.search("Ape Escape 3")
+            fail("Expected IOException")
+        } catch (_: IOException) {
+        }
+    }
+
+    @Test
+    fun search_throwsAuthErrorWhenAuthFailsAndRemainingActiveSourcesFail() = runBlocking {
+        iidbHandler = { _, _ -> 401 to """{"error":"Unauthorized"}""" }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            searchError = IOException("LaunchBox network error")
+        )
+        val repository = MetadataRepository(
+            metadataDirectory = tempDir,
+            service = fakeLaunchBox,
+            iidbService = iidbService,
+            rawgService = rawgService
+        ) {
+            MetadataConfig(
+                order = listOf(MetadataSource.IIDB, MetadataSource.LAUNCHBOX),
+                iidbApiKey = "bad-key",
+                rawgApiKey = ""
+            )
+        }
+
+        try {
+            repository.search("Ape Escape 3")
+            fail("Expected MetadataAuthException")
+        } catch (e: MetadataAuthException) {
+            assertEquals(MetadataSource.IIDB, e.source)
+        }
+    }
+
+    @Test
     fun resolve_routesLegacyUnprefixedIdToLaunchBoxAndIidbIdToIidbWithSummaryBackfill() = runBlocking {
         iidbHandler = { method, path ->
             if (method == "GET" && path.startsWith("/assets/parents/99")) {
@@ -397,11 +451,14 @@ class MetadataRepositoryTest {
     )
 
     private class FakeLaunchBoxService(
-        private val searchResults: List<GameMetadata>,
-        private val detailsById: Map<String, GameMetadata> = emptyMap()
+        private val searchResults: List<GameMetadata> = emptyList(),
+        private val detailsById: Map<String, GameMetadata> = emptyMap(),
+        private val searchError: Exception? = null
     ) : LaunchBoxService() {
-        override suspend fun searchGames(query: String): List<GameMetadata> = searchResults
-
+        override suspend fun searchGames(query: String): List<GameMetadata> {
+            searchError?.let { throw it }
+            return searchResults
+        }
         override suspend fun fetchGameDetails(
             detailsUrlSuffix: String,
             basicMetadata: GameMetadata

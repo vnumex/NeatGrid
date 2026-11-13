@@ -276,23 +276,16 @@ fun SettingsScreen(
 
             SectionHeader("Metadata")
             metadataSourceOrder.forEachIndexed { index, source ->
-                val statusSubtitle = when (source) {
+                val baseSubtitle = when (source) {
                     MetadataSource.IIDB -> {
-                        if (iidbApiKey.isNotBlank()) {
-                            if (index == 0) "Default · API key configured" else "API key configured"
-                        } else {
-                            "API key required"
-                        }
+                        if (iidbApiKey.isNotBlank()) "API key configured" else "API key required"
                     }
                     MetadataSource.LAUNCHBOX -> "No API key required"
                     MetadataSource.RAWG -> {
-                        if (rawgApiKey.isNotBlank()) {
-                            if (index == 0) "Default · API key configured" else "API key configured"
-                        } else {
-                            "API key required"
-                        }
+                        if (rawgApiKey.isNotBlank()) "API key configured" else "API key required"
                     }
                 }
+                val statusSubtitle = if (index == 0) "Default · $baseSubtitle" else baseSubtitle
                 ListItem(
                     modifier = Modifier.padding(start = 8.dp),
                     headlineContent = { Text(text = "${index + 1}. ${source.displayName}") },
@@ -417,7 +410,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .clickable { showInfoDialog = true },
-                headlineContent = { Text(text = "Information & Credits",fontWeight = FontWeight.SemiBold) }
+                headlineContent = { Text(text = "Information & Credits", fontWeight = FontWeight.SemiBold) }
             )
         }
     }

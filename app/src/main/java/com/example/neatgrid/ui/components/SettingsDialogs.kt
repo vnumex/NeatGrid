@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
@@ -86,6 +87,7 @@ fun ApiKeyDialog(
                         keyInput = it
                         verifyResult = null
                     },
+                    enabled = !isVerifying,
                     label = { Text(text = "API Key") },
                     singleLine = true,
                     visualTransformation = if (keyVisible) {
@@ -203,17 +205,22 @@ fun InformationCreditsDialog(
             textDecoration = TextDecoration.Underline
         )
     )
+    val linkListener = LinkInteractionListener { link ->
+        if (link is LinkAnnotation.Url) {
+            runCatching { uriHandler.openUri(link.url) }
+        }
+    }
     val iidbAttribution = buildAnnotatedString {
         append("Catalog data from ")
-        withLink(LinkAnnotation.Url("https://iidb.iisu.network", linkStyles)) {
+        withLink(LinkAnnotation.Url("https://iidb.iisu.network", linkStyles, linkListener)) {
             append("iiDB (iisu.network)")
         }
         append(", adapted from the ")
-        withLink(LinkAnnotation.Url("https://github.com/libretro/libretro-database", linkStyles)) {
+        withLink(LinkAnnotation.Url("https://github.com/libretro/libretro-database", linkStyles, linkListener)) {
             append("Libretro Database")
         }
         append(", ")
-        withLink(LinkAnnotation.Url("https://creativecommons.org/licenses/by-sa/4.0/", linkStyles)) {
+        withLink(LinkAnnotation.Url("https://creativecommons.org/licenses/by-sa/4.0/", linkStyles, linkListener)) {
             append("CC BY-SA 4.0")
         }
     }

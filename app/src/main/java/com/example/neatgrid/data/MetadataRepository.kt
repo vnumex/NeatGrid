@@ -135,6 +135,9 @@ class MetadataRepository internal constructor(
         val sources = activeSources(config)
         val results = mutableListOf<GameMetadata>()
         val warnings = mutableListOf<String>()
+        var hadSuccessfulAttempt = false
+        var firstAuthError: MetadataAuthException? = null
+        var lastError: Exception? = null
         for (source in sources) {
             try {
                 val sourceResults = when (source) {
@@ -142,14 +145,21 @@ class MetadataRepository internal constructor(
                     MetadataSource.LAUNCHBOX -> service.searchGames(cleanQuery)
                     MetadataSource.RAWG -> rawgService.searchGames(cleanQuery, config.rawgApiKey)
                 }
+                hadSuccessfulAttempt = true
                 results += sourceResults
             } catch (e: CancellationException) {
                 throw e
             } catch (e: MetadataAuthException) {
+                if (firstAuthError == null) firstAuthError = e
+                lastError = e
                 warnings += "${source.displayName}: ${e.message ?: "Authentication failed"}"
             } catch (e: Exception) {
+                lastError = e
                 warnings += "${source.displayName}: ${e.message ?: "Search failed"}"
             }
+        }
+        if (!hadSuccessfulAttempt && lastError != null) {
+            throw firstAuthError ?: lastError
         }
         return MetadataSearchResult(results = results, warnings = warnings)
     }

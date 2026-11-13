@@ -168,27 +168,31 @@ object MetadataMatcher {
             .replace(Regex("\\s+"), " ")
     }
 
-    private fun platformsMatch(preferred: String, candidate: String): Boolean {
+    internal fun platformsMatch(preferred: String, candidate: String): Boolean {
         val preferredNames = platformNames(preferred)
         val candidateName = normalize(candidate)
         return candidateName in preferredNames
     }
 
     private fun platformNames(platform: String): Set<String> {
-        return when (normalize(platform)) {
-            "psp" -> setOf("psp", "sony psp", "playstation portable")
-            "playstation 1" -> setOf("playstation", "sony playstation", "ps1")
-            "playstation 2" -> setOf("playstation 2", "sony playstation 2", "ps2")
-            "game boy advance" -> setOf("game boy advance", "nintendo game boy advance", "gba")
-            "super nintendo" -> setOf("super nintendo", "super nintendo entertainment system", "snes")
-            "nintendo 64" -> setOf("nintendo 64", "n64")
-            "gamecube" -> setOf("gamecube", "nintendo gamecube")
-            "wii" -> setOf("wii", "nintendo wii")
-            "nintendo ds" -> setOf("nintendo ds", "nds")
-            "nintendo 3ds" -> setOf("nintendo 3ds", "3ds")
-            else -> setOf(normalize(platform))
-        }
+        val normalized = normalize(platform)
+        return PLATFORM_ALIAS_GROUPS.firstOrNull { normalized in it } ?: setOf(normalized)
     }
+
+    private val PLATFORM_ALIAS_GROUPS = listOf(
+        setOf("psp", "sony psp", "playstation portable", "sony playstation portable"),
+        setOf("playstation", "sony playstation", "ps1", "psx", "playstation 1", "sony playstation 1"),
+        setOf("playstation 2", "sony playstation 2", "ps2"),
+        setOf("game boy advance", "nintendo game boy advance", "gba"),
+        setOf("super nintendo", "super nintendo entertainment system", "snes", "super famicom"),
+        setOf("nintendo 64", "n64"),
+        setOf("gamecube", "nintendo gamecube", "gc", "ngc"),
+        setOf("wii", "nintendo wii"),
+        setOf("nintendo ds", "nds", "ds"),
+        setOf("nintendo 3ds", "3ds", "n3ds"),
+        setOf("nintendo switch", "switch"),
+        setOf("android")
+    )
 
     private fun levenshtein(left: String, right: String): Int {
         var previous = IntArray(right.length + 1) { it }

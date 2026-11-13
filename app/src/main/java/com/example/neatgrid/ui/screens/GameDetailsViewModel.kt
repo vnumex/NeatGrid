@@ -147,7 +147,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
             _searchError.value = null
             _searchResults.value = emptyList()
             try {
-                _searchResults.value = metadataRepository.search(query)
+                _searchResults.value = metadataRepository.search(query).results
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

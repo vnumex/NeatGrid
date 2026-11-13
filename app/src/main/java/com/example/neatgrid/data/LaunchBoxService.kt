@@ -6,9 +6,9 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
-class LaunchBoxService {
+open class LaunchBoxService {
 
-    suspend fun searchGames(query: String): List<GameMetadata> = withContext(Dispatchers.IO) {
+    open suspend fun searchGames(query: String): List<GameMetadata> = withContext(Dispatchers.IO) {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val urlSpec = "https://gamesdb.launchbox-app.com/games/results/$encodedQuery"
         val doc = Jsoup.connect(urlSpec)
@@ -18,7 +18,7 @@ class LaunchBoxService {
         parseSearchResults(doc)
     }
 
-    suspend fun fetchGameDetails(detailsUrlSuffix: String, basicMetadata: GameMetadata): GameMetadata = withContext(Dispatchers.IO) {
+    open suspend fun fetchGameDetails(detailsUrlSuffix: String, basicMetadata: GameMetadata): GameMetadata = withContext(Dispatchers.IO) {
         val urlSpec = "https://gamesdb.launchbox-app.com/games/details/$detailsUrlSuffix"
         val doc = Jsoup.connect(urlSpec)
             .userAgent(USER_AGENT)

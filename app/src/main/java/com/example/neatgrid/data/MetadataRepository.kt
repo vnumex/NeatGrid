@@ -2,6 +2,8 @@ package com.example.neatgrid.data
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -20,11 +22,37 @@ data class CachedGameMetadata(
     val status: MetadataCacheStatus
 )
 
-class MetadataRepository(
-    context: Context,
-    private val service: LaunchBoxService = LaunchBoxService()
+data class MetadataConfig(
+    val order: List<MetadataSource>,
+    val iidbApiKey: String,
+    val rawgApiKey: String
+)
+
+data class MetadataSearchResult(
+    val results: List<GameMetadata>,
+    val warnings: List<String> = emptyList()
+)
+
+class MetadataRepository internal constructor(
+    private val metadataDirectory: File,
+    private val service: LaunchBoxService = LaunchBoxService(),
+    private val iidbService: IidbService = IidbService(),
+    private val rawgService: RawgService = RawgService(),
+    private val configProvider: suspend () -> MetadataConfig
 ) {
-    private val metadataDirectory = File(context.filesDir, "metadata")
+    constructor(
+        context: Context,
+        service: LaunchBoxService = LaunchBoxService(),
+        iidbService: IidbService = IidbService(),
+        rawgService: RawgService = RawgService(),
+        configProvider: suspend () -> MetadataConfig = defaultConfigProvider(context)
+    ) : this(
+        metadataDirectory = File(context.filesDir, "metadata"),
+        service = service,
+        iidbService = iidbService,
+        rawgService = rawgService,
+        configProvider = configProvider
+    )
 
     fun readCached(packageName: String): CachedGameMetadata? {
         val file = cacheFile(packageName)
@@ -52,25 +80,163 @@ class MetadataRepository(
         preferredPlatforms: Set<String> = emptySet()
     ): CachedGameMetadata {
         val query = MetadataMatcher.cleanQuery(label)
-        val results = service.searchGames(query)
-        val match = MetadataMatcher.bestMatch(query, results, preferredPlatforms)
-            ?: return CachedGameMetadata(
+        if (query.isBlank()) {
+            return CachedGameMetadata(
                 metadata = emptyMetadata(label),
                 status = MetadataCacheStatus.NOT_FOUND
             )
-        val resolved = match.sourceId?.let { service.fetchGameDetails(it, match) } ?: match
+        }
+        val config = configProvider()
+        val sources = activeSources(config)
+        var authError: MetadataAuthException? = null
+        var lastError: Exception? = null
+        var hadSuccessfulAttempt = false
+
+        for ((index, source) in sources.withIndex()) {
+            try {
+                val match = lookupFromSource(source, query, preferredPlatforms, config)
+                hadSuccessfulAttempt = true
+                if (match != null) {
+                    val enriched = backfillSummary(
+                        primary = match,
+                        query = query,
+                        preferredPlatforms = preferredPlatforms,
+                        fallbackSources = sources.drop(index + 1),
+                        config = config
+                    )
+                    return CachedGameMetadata(
+                        metadata = enriched,
+                        status = MetadataCacheStatus.AUTOMATIC
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MetadataAuthException) {
+                if (authError == null) authError = e
+                lastError = e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+
+        if (authError != null) throw authError
+        if (!hadSuccessfulAttempt && lastError != null) throw lastError
+
         return CachedGameMetadata(
-            metadata = resolved.copy(sourceId = match.sourceId),
-            status = MetadataCacheStatus.AUTOMATIC
+            metadata = emptyMetadata(label),
+            status = MetadataCacheStatus.NOT_FOUND
         )
     }
 
-    suspend fun search(query: String): List<GameMetadata> {
-        return service.searchGames(MetadataMatcher.cleanQuery(query))
+    suspend fun search(query: String): MetadataSearchResult {
+        val cleanQuery = MetadataMatcher.cleanQuery(query)
+        if (cleanQuery.isBlank()) return MetadataSearchResult(emptyList())
+        val config = configProvider()
+        val sources = activeSources(config)
+        val results = mutableListOf<GameMetadata>()
+        val warnings = mutableListOf<String>()
+        for (source in sources) {
+            try {
+                val sourceResults = when (source) {
+                    MetadataSource.IIDB -> iidbService.searchGames(cleanQuery, config.iidbApiKey)
+                    MetadataSource.LAUNCHBOX -> service.searchGames(cleanQuery)
+                    MetadataSource.RAWG -> rawgService.searchGames(cleanQuery, config.rawgApiKey)
+                }
+                results += sourceResults
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MetadataAuthException) {
+                warnings += "${source.displayName}: ${e.message ?: "Authentication failed"}"
+            } catch (e: Exception) {
+                warnings += "${source.displayName}: ${e.message ?: "Search failed"}"
+            }
+        }
+        return MetadataSearchResult(results = results, warnings = warnings)
     }
 
     suspend fun resolve(game: GameMetadata): GameMetadata {
-        return game.sourceId?.let { service.fetchGameDetails(it, game) } ?: game
+        val sourceId = game.sourceId ?: return game
+        val source = MetadataSource.fromSourceId(sourceId)
+        val config = configProvider()
+        val resolved = when (source) {
+            MetadataSource.IIDB -> iidbService.fetchGameDetails(sourceId, game, config.iidbApiKey)
+            MetadataSource.LAUNCHBOX -> service.fetchGameDetails(sourceId, game)
+            MetadataSource.RAWG -> rawgService.fetchGameDetails(sourceId, game, config.rawgApiKey)
+        }
+        val withSourceId = if (resolved.sourceId.isNullOrBlank()) {
+            resolved.copy(sourceId = sourceId)
+        } else {
+            resolved
+        }
+        if (!withSourceId.summary.isNullOrBlank()) return withSourceId
+        val fallbackSources = activeSources(config).filter { it != source }
+        return backfillSummary(
+            primary = withSourceId,
+            query = MetadataMatcher.cleanQuery(withSourceId.title),
+            preferredPlatforms = withSourceId.platforms.toSet(),
+            fallbackSources = fallbackSources,
+            config = config
+        )
+    }
+
+    private suspend fun lookupFromSource(
+        source: MetadataSource,
+        query: String,
+        preferredPlatforms: Set<String>,
+        config: MetadataConfig
+    ): GameMetadata? {
+        return when (source) {
+            MetadataSource.IIDB -> iidbService.resolveBestMatch(query, preferredPlatforms, config.iidbApiKey)
+            MetadataSource.LAUNCHBOX -> {
+                val results = service.searchGames(query)
+                val match = MetadataMatcher.bestMatch(query, results, preferredPlatforms) ?: return null
+                val resolved = match.sourceId?.let { service.fetchGameDetails(it, match) } ?: match
+                resolved.copy(sourceId = match.sourceId)
+            }
+            MetadataSource.RAWG -> {
+                val results = rawgService.searchGames(query, config.rawgApiKey)
+                val match = MetadataMatcher.bestMatch(query, results, preferredPlatforms) ?: return null
+                val resolved = match.sourceId?.let { rawgService.fetchGameDetails(it, match, config.rawgApiKey) } ?: match
+                resolved.copy(sourceId = match.sourceId)
+            }
+        }
+    }
+
+    private suspend fun backfillSummary(
+        primary: GameMetadata,
+        query: String,
+        preferredPlatforms: Set<String>,
+        fallbackSources: List<MetadataSource>,
+        config: MetadataConfig
+    ): GameMetadata {
+        if (!primary.summary.isNullOrBlank() || query.isBlank()) return primary
+        for (source in fallbackSources) {
+            val fallback = try {
+                lookupFromSource(source, query, preferredPlatforms, config)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (fallback != null && !fallback.summary.isNullOrBlank()) {
+                return primary.copy(
+                    summary = fallback.summary,
+                    genres = primary.genres.ifEmpty { fallback.genres },
+                    rating = primary.rating ?: fallback.rating
+                )
+            }
+        }
+        return primary
+    }
+
+    private fun activeSources(config: MetadataConfig): List<MetadataSource> {
+        return config.order.distinct().filter { source ->
+            when (source) {
+                MetadataSource.IIDB -> config.iidbApiKey.isNotBlank()
+                MetadataSource.RAWG -> config.rawgApiKey.isNotBlank()
+                MetadataSource.LAUNCHBOX -> true
+            }
+        }
     }
 
     suspend fun save(
@@ -111,6 +277,17 @@ class MetadataRepository(
         coverUrl = null,
         screenshotUrls = emptyList()
     )
+}
+
+private fun defaultConfigProvider(context: Context): suspend () -> MetadataConfig {
+    val settingsManager = SettingsManager(context)
+    return {
+        MetadataConfig(
+            order = settingsManager.metadataSourceOrderFlow.first(),
+            iidbApiKey = settingsManager.iidbApiKeyFlow.first(),
+            rawgApiKey = settingsManager.rawgApiKeyFlow.first()
+        )
+    }
 }
 
 object MetadataMatcher {

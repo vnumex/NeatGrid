@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -60,6 +60,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.neatgrid.data.GameMetadata
+import com.example.neatgrid.data.sourceLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,7 +72,8 @@ fun GameMetadataEditor(
     onSearch: (String) -> Unit,
     onApplyMatch: (GameMetadata) -> Unit,
     onSave: (GameMetadata) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    searchWarning: String? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember(metadata.title) { mutableStateOf(metadata.title) }
@@ -172,6 +174,7 @@ fun GameMetadataEditor(
                         results = searchResults,
                         isSearching = isSearching,
                         error = searchError,
+                        warning = searchWarning,
                         onSearch = { onSearch(searchQuery) },
                         onSelect = onApplyMatch,
                         modifier = Modifier.padding(contentPadding)
@@ -266,6 +269,7 @@ private fun MetadataSearchPanel(
     results: List<GameMetadata>,
     isSearching: Boolean,
     error: String?,
+    warning: String?,
     onSearch: () -> Unit,
     onSelect: (GameMetadata) -> Unit,
     modifier: Modifier = Modifier
@@ -302,7 +306,23 @@ private fun MetadataSearchPanel(
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.size(12.dp))
-        Box(modifier = Modifier.fillMaxSize()) {
+        if (!isSearching && !warning.isNullOrBlank()) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when {
                 isSearching -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 error != null -> Text(
@@ -322,7 +342,10 @@ private fun MetadataSearchPanel(
                         .fillMaxWidth()
                 )
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(results, key = { it.sourceId ?: "${it.title}-${it.platforms.firstOrNull()}" }) { game ->
+                    itemsIndexed(
+                        items = results,
+                        key = { index, game -> "${game.sourceLabel()}:${game.sourceId ?: game.title}-$index" }
+                    ) { _, game ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -356,9 +379,10 @@ private fun MetadataSearchPanel(
                                     )
                                     Text(
                                         text = listOfNotNull(
+                                            game.sourceLabel(),
                                             game.platforms.firstOrNull(),
                                             game.releaseDate?.substringBefore('-')
-                                        ).joinToString(" · ").ifEmpty { "No release details" },
+                                        ).joinToString(" · "),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,

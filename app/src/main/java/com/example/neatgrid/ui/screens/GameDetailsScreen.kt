@@ -84,6 +84,7 @@ fun GameDetailsScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val searchError by viewModel.searchError.collectAsState()
+    val searchWarning by viewModel.searchWarning.collectAsState()
 
     LaunchedEffect(packageName) {
         viewModel.loadMetadata(packageName)
@@ -188,7 +189,7 @@ fun GameDetailsScreen(
                         ) {
                             Icon(Icons.Default.Search, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Search LaunchBox Manually")
+                            Text("Search Metadata Manually")
                         }
                         OutlinedButton(
                             onClick = {
@@ -466,6 +467,7 @@ fun GameDetailsScreen(
                 searchResults = searchResults,
                 isSearching = isSearching,
                 searchError = searchError,
+                searchWarning = searchWarning,
                 onSearch = viewModel::searchOverride,
                 onApplyMatch = { game ->
                     viewModel.applyOverride(packageName, game) {

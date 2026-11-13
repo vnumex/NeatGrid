@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.neatgrid.data.CachedGameMetadata
 import com.example.neatgrid.data.Emulator
 import com.example.neatgrid.data.GameMetadata
+import com.example.neatgrid.data.MetadataAuthException
 import com.example.neatgrid.data.MetadataCacheStatus
 import com.example.neatgrid.data.MetadataRepository
 import com.example.neatgrid.data.RomRepository
@@ -46,6 +47,9 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _searchError = MutableStateFlow<String?>(null)
     val searchError: StateFlow<String?> = _searchError.asStateFlow()
+
+    private val _searchWarning = MutableStateFlow<String?>(null)
+    val searchWarning: StateFlow<String?> = _searchWarning.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -145,9 +149,12 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
         searchJob = viewModelScope.launch {
             _isSearching.value = true
             _searchError.value = null
+            _searchWarning.value = null
             _searchResults.value = emptyList()
             try {
-                _searchResults.value = metadataRepository.search(query).results
+                val searchResult = metadataRepository.search(query)
+                _searchResults.value = searchResult.results
+                _searchWarning.value = searchResult.warnings.joinToString("\n").takeIf { it.isNotEmpty() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -212,6 +219,7 @@ class GameDetailsViewModel(application: Application) : AndroidViewModel(applicat
     private fun errorMessage(error: Throwable): String {
         return when (error) {
             is PackageManager.NameNotFoundException -> "App not found on this device."
+            is MetadataAuthException -> "Invalid ${error.source.displayName} API key. Check your key in Settings."
             is IOException -> "Could not connect to the metadata service. Check your connection and try again."
             else -> error.localizedMessage ?: "Could not load game metadata."
         }

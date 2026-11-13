@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
@@ -410,6 +411,12 @@ fun SettingsScreen(
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .clickable { showInfoDialog = true },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null
+                    )
+                },
                 headlineContent = { Text(text = "Information & Credits", fontWeight = FontWeight.SemiBold) }
             )
         }

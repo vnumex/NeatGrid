@@ -29,6 +29,8 @@ class SettingsManager(private val context: Context) {
         val ROUNDED_COVERS_KEY = booleanPreferencesKey("rounded_covers")
         val EMULATOR_SELECTIONS_KEY = stringSetPreferencesKey("emulator_selections")
         val SCAN_ROM_SUBFOLDERS_KEY = booleanPreferencesKey("scan_rom_subfolders")
+        val IIDB_API_KEY_KEY = stringPreferencesKey("iidb_api_key")
+        val METADATA_SOURCE_ORDER_KEY = stringPreferencesKey("metadata_source_order")
     }
 
     val appsPerRowFlow: Flow<Int> = context.dataStore.data
@@ -140,12 +142,34 @@ class SettingsManager(private val context: Context) {
 
     val rawgApiKeyFlow: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[RAWG_API_KEY_KEY] ?: ""
+            ApiKeyCipher.decrypt(preferences[RAWG_API_KEY_KEY] ?: "")
         }
 
     suspend fun saveRawgApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
-            preferences[RAWG_API_KEY_KEY] = apiKey
+            preferences[RAWG_API_KEY_KEY] = ApiKeyCipher.encrypt(apiKey)
+        }
+    }
+
+    val iidbApiKeyFlow: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            ApiKeyCipher.decrypt(preferences[IIDB_API_KEY_KEY] ?: "")
+        }
+
+    suspend fun saveIidbApiKey(apiKey: String) {
+        context.dataStore.edit { preferences ->
+            preferences[IIDB_API_KEY_KEY] = ApiKeyCipher.encrypt(apiKey)
+        }
+    }
+
+    val metadataSourceOrderFlow: Flow<List<MetadataSource>> = context.dataStore.data
+        .map { preferences ->
+            MetadataSource.parseOrder(preferences[METADATA_SOURCE_ORDER_KEY])
+        }
+
+    suspend fun saveMetadataSourceOrder(order: List<MetadataSource>) {
+        context.dataStore.edit { preferences ->
+            preferences[METADATA_SOURCE_ORDER_KEY] = MetadataSource.serializeOrder(order)
         }
     }
 

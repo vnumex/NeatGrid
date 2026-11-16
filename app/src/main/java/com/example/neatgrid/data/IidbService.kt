@@ -84,7 +84,7 @@ class IidbService(
         val payload = JSONObject()
             .put("title", query.trim())
             .put("artwork", "recommended")
-            .put("slots", JSONArray(listOf("boxart", "background", "screenshot")))
+            .put("slots", JSONArray(ARTWORK_SLOTS))
             .put("candidates_per_slot", 4)
             .put("include", JSONArray(listOf("parent_metadata", "asset_metadata")))
         toConsoleId(preferredPlatforms)?.let { payload.put("preferred_console", it) }
@@ -126,12 +126,15 @@ class IidbService(
         val cleanId = parentId.removePrefix("iidb:").trim()
         if (cleanId.isEmpty()) throw IOException("Missing iiDB parent ID")
         val encodedId = URLEncoder.encode(cleanId, "UTF-8")
-        val route = "/assets/parents/$encodedId?slots=boxart,background,screenshot&candidates_per_slot=4&include=parent_metadata,asset_metadata"
+        val slots = ARTWORK_SLOTS.joinToString(",")
+        val route =
+            "/assets/parents/$encodedId?slots=$slots&candidates_per_slot=4&include=parent_metadata,asset_metadata"
         val json = requestJson(route, "GET", apiKey)
         val parent = json.optJSONObject("match")?.optJSONObject("parent")
         val artwork = json.optJSONObject("artwork")
         val parsed = parent?.let { parseParentMetadata(it, artwork) }
         val (boxart, background, screenshots) = parseArtwork(artwork)
+        val icon = parseIcon(artwork)
 
         return basicMetadata.copy(
             title = parsed?.title ?: basicMetadata.title,
@@ -140,7 +143,28 @@ class IidbService(
             coverUrl = boxart ?: parsed?.coverUrl ?: basicMetadata.coverUrl,
             backdropUrl = background ?: parsed?.backdropUrl ?: basicMetadata.backdropUrl,
             screenshotUrls = screenshots.ifEmpty { basicMetadata.screenshotUrls },
-            sourceId = "iidb:$cleanId"
+            sourceId = "iidb:$cleanId",
+            iconUrl = icon ?: basicMetadata.iconUrl
+        )
+    }
+
+    suspend fun fetchArtwork(parentId: String, apiKey: String): ArtworkUrls {
+        val cleanId = parentId.removePrefix("iidb:").trim()
+        if (cleanId.isEmpty()) throw IOException("Missing iiDB parent ID")
+        val encodedId = URLEncoder.encode(cleanId, "UTF-8")
+        val slots = PICKER_SLOTS.joinToString(",")
+        val json = requestJson(
+            "/assets/parents/$encodedId?slots=$slots&candidates_per_slot=6",
+            "GET",
+            apiKey
+        )
+        val artwork = json.optJSONObject("artwork") ?: return ArtworkUrls()
+        fun urls(vararg slotNames: String) = slotNames
+            .flatMap { extractArtworkImages(artwork.optJSONArray(it)) }
+            .distinctBy { it.url }
+        return ArtworkUrls(
+            banners = urls("banner", "hero"),
+            icons = urls("icon", "boxart", "iisu_boxart")
         )
     }
 
@@ -250,7 +274,8 @@ class IidbService(
             coverUrl = coverUrl,
             screenshotUrls = screenshots,
             sourceId = "iidb:$id",
-            backdropUrl = background
+            backdropUrl = background,
+            iconUrl = parseIcon(artwork)
         )
     }
 
@@ -260,6 +285,19 @@ class IidbService(
         val background = extractArtworkUrls(artwork.optJSONArray("background")).firstOrNull()
         val screenshots = extractArtworkUrls(artwork.optJSONArray("screenshot"))
         return Triple(boxart, background, screenshots)
+    }
+
+    private fun parseIcon(artwork: JSONObject?): String? {
+        return artwork?.let { extractArtworkUrls(it.optJSONArray("icon")).firstOrNull() }
+    }
+
+    private fun extractArtworkImages(array: JSONArray?): List<ArtworkImage> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val url = item.optNullableString("url") ?: return@mapNotNull null
+            ArtworkImage(url, item.optNullableString("thumbnail_url") ?: url)
+        }
     }
 
     private fun extractArtworkUrls(array: JSONArray?): List<String> {
@@ -328,6 +366,8 @@ class IidbService(
 
     companion object {
         const val DEFAULT_BASE_URL = "https://iidb-api.iisu.network/api/v1"
+        private val ARTWORK_SLOTS = listOf("boxart", "icon", "background", "screenshot")
+        private val PICKER_SLOTS = listOf("boxart", "iisu_boxart", "icon", "banner", "hero")
         private const val TIMEOUT_MS = 10_000
 
         fun toConsoleId(preferredPlatforms: Set<String>): String? {

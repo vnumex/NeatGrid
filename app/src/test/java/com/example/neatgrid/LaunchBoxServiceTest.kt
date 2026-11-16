@@ -87,6 +87,10 @@ class LaunchBoxServiceTest {
                     <img src="https://images.launchbox-app.com/gameplay1.jpg" />
                     <img src="https://images.launchbox-app.com/gameplay2.jpg" />
                 </div>
+                <h3>Square</h3>
+                <div>
+                    <img src="https://images.launchbox-app.com/square.png" />
+                </div>
                 <h3>Banner</h3>
                 <div>
                     <img src="https://images.launchbox-app.com/banner.jpg" />
@@ -121,6 +125,7 @@ class LaunchBoxServiceTest {
             gameDetails.summary
         )
         assertEquals("https://images.launchbox-app.com/box-front.jpg", gameDetails.coverUrl)
+        assertEquals("https://images.launchbox-app.com/square.png", gameDetails.iconUrl)
         assertEquals(2, gameDetails.genres.size)
         assertEquals("Action", gameDetails.genres[0])
         assertEquals("Platform", gameDetails.genres[1])
@@ -128,5 +133,52 @@ class LaunchBoxServiceTest {
         assertEquals(2, gameDetails.screenshotUrls.size)
         assertEquals("https://images.launchbox-app.com/gameplay1.jpg", gameDetails.screenshotUrls[0])
         assertEquals("https://images.launchbox-app.com/gameplay2.jpg", gameDetails.screenshotUrls[1])
+    }
+
+    @Test
+    fun parseArtwork_groupsCoversBannersAndSquares() {
+        val html = """
+            <html><body>
+                <h3>Banner</h3>
+                <div><img src="https://images.launchbox-app.com/banner.jpg" /></div>
+                <h3>Box - Front</h3>
+                <div>
+                    <div><img src="https://images.launchbox-app.com/front-us.jpg" /></div>
+                    <div><img src="https://images.launchbox-app.com/front-jp.jpg" /></div>
+                </div>
+                <h3>Box - Front - Reconstructed</h3>
+                <div><img src="https://images.launchbox-app.com/front-rec.jpg" /></div>
+                <h3>Box - Back</h3>
+                <div><img src="https://images.launchbox-app.com/back.jpg" /></div>
+                <h3>Fanart - Background</h3>
+                <div><img src="https://images.launchbox-app.com/fanart.jpg" /></div>
+                <h3>Fanart - Box - Front</h3>
+                <div><img src="https://images.launchbox-app.com/fanart-front.jpg" /></div>
+                <h3>Square</h3>
+                <div><img src="https://images.launchbox-app.com/square.png" /></div>
+            </body></html>
+        """.trimIndent()
+
+        val artwork =
+            LaunchBoxService().parseArtwork(Jsoup.parse(html, "https://gamesdb.launchbox-app.com"))
+
+        assertEquals(
+            listOf(
+                "https://images.launchbox-app.com/front-us.jpg",
+                "https://images.launchbox-app.com/front-jp.jpg",
+                "https://images.launchbox-app.com/front-rec.jpg"
+            ),
+            artwork.covers.map { it.url }
+        )
+        assertEquals(
+            listOf(
+                "https://images.launchbox-app.com/banner.jpg",
+                "https://images.launchbox-app.com/fanart.jpg"
+            ),
+            artwork.banners.map { it.url }
+        )
+        assertEquals(
+            listOf("https://images.launchbox-app.com/square.png"),
+            artwork.icons.map { it.url })
     }
 }

@@ -24,7 +24,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.neatgrid.data.LibraryCoverStyle
 import com.example.neatgrid.data.RomRepository
+import com.example.neatgrid.ui.components.ArtworkPickerDialog
 import com.example.neatgrid.ui.components.BottomNavItem
 import com.example.neatgrid.ui.components.BottomNavigationBar
 import com.example.neatgrid.ui.components.DetectedGamesDialog
@@ -54,17 +56,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            val appsPerRow by settingsViewModel.appsPerRow.collectAsStateWithLifecycle()
-            val showGameNames by settingsViewModel.showGameNames.collectAsStateWithLifecycle()
+            val libraryDensity by settingsViewModel.libraryDensity.collectAsStateWithLifecycle()
+            val libraryTitleStyle by settingsViewModel.libraryTitleStyle.collectAsStateWithLifecycle()
+            val libraryCoverStyle by settingsViewModel.libraryCoverStyle.collectAsStateWithLifecycle()
             val roundedCovers by settingsViewModel.roundedCovers.collectAsStateWithLifecycle()
             val emulatorSelections by settingsViewModel.emulatorSelections.collectAsStateWithLifecycle()
             val romFolderUri by settingsViewModel.romFolder.collectAsStateWithLifecycle()
             val scanRomSubfolders by settingsViewModel.scanRomSubfolders.collectAsStateWithLifecycle()
             val metadataSourceOrder by settingsViewModel.metadataSourceOrder.collectAsStateWithLifecycle()
             val iidbApiKey by settingsViewModel.iidbApiKey.collectAsStateWithLifecycle()
+            val effectiveCoverStyle = libraryCoverStyle.effective(iidbApiKey.isNotBlank())
+            val iconsInUse = effectiveCoverStyle == LibraryCoverStyle.ICON
             val rawgApiKey by settingsViewModel.rawgApiKey.collectAsStateWithLifecycle()
+            val steamGridDbApiKey by settingsViewModel.steamGridDbApiKey.collectAsStateWithLifecycle()
+            val disabledMetadataSources by settingsViewModel.disabledMetadataSources.collectAsStateWithLifecycle()
+            val imageCacheBytes by settingsViewModel.imageCacheBytes.collectAsStateWithLifecycle()
             val detectedGameCandidates by libraryViewModel.detectedGameCandidates.collectAsStateWithLifecycle()
             val missingRomPrompts by libraryViewModel.missingRomPrompts.collectAsStateWithLifecycle()
+            val artworkReviewQueue by libraryViewModel.artworkReviewQueue.collectAsStateWithLifecycle()
             LibrarySyncEffect(libraryViewModel)
 
             val selectedThemeIndex by settingsViewModel.themeIndex.collectAsStateWithLifecycle()
@@ -116,8 +125,9 @@ class MainActivity : ComponentActivity() {
                                 Box(modifier = Modifier.padding(innerPadding)) {
                                     LibraryScreen(
                                         viewModel = libraryViewModel,
-                                        columns = appsPerRow,
-                                        showGameNames = showGameNames,
+                                        density = libraryDensity,
+                                        titleStyle = libraryTitleStyle,
+                                        coverStyle = effectiveCoverStyle,
                                         roundedCovers = roundedCovers,
                                         onAppClick = { packageName ->
                                             val encoded = java.net.URLEncoder.encode(packageName, "UTF-8")
@@ -170,10 +180,12 @@ class MainActivity : ComponentActivity() {
                                         darkThemeEnabled = isDarkTheme,
                                         amoledBlackEnabled = amoledBlackEnabled,
                                         onAmoledBlackChange = { settingsViewModel.setAmoledBlack(it) },
-                                        selectedAppsPerRow = appsPerRow,
-                                        onAppsPerRowChange = { settingsViewModel.setAppsPerRow(it) },
-                                        showGameNames = showGameNames,
-                                        onShowGameNamesChange = settingsViewModel::setShowGameNames,
+                                        libraryDensity = libraryDensity,
+                                        onLibraryDensityChange = settingsViewModel::setLibraryDensity,
+                                        libraryTitleStyle = libraryTitleStyle,
+                                        onLibraryTitleStyleChange = settingsViewModel::setLibraryTitleStyle,
+                                        libraryCoverStyle = libraryCoverStyle,
+                                        onLibraryCoverStyleChange = settingsViewModel::setLibraryCoverStyle,
                                         roundedCovers = roundedCovers,
                                         onRoundedCoversChange = settingsViewModel::setRoundedCovers,
                                         emulatorSelections = emulatorSelections,
@@ -205,7 +217,23 @@ class MainActivity : ComponentActivity() {
                                         onIidbApiKeyChange = settingsViewModel::setIidbApiKey,
                                         onVerifyIidbKey = settingsViewModel::verifyIidbKey,
                                         rawgApiKey = rawgApiKey,
-                                        onRawgApiKeyChange = settingsViewModel::setRawgApiKey
+                                        onRawgApiKeyChange = settingsViewModel::setRawgApiKey,
+                                        steamGridDbApiKey = steamGridDbApiKey,
+                                        onSteamGridDbApiKeyChange = settingsViewModel::setSteamGridDbApiKey,
+                                        onVerifySteamGridDbKey = settingsViewModel::verifySteamGridDbKey,
+                                        disabledMetadataSources = disabledMetadataSources,
+                                        onMetadataSourceEnabledChange = settingsViewModel::setMetadataSourceEnabled,
+                                        imageCacheBytes = imageCacheBytes,
+                                        onRefreshImageCacheSize = settingsViewModel::refreshImageCacheSize,
+                                        onClearImageCache = {
+                                            settingsViewModel.clearImageCache {
+                                                Toast.makeText(
+                                                    applicationContext,
+                                                    "Image cache cleared",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -223,6 +251,7 @@ class MainActivity : ComponentActivity() {
                                     packageName = packageName,
                                     onBack = { navController.popBackStack() },
                                     onMetadataChanged = libraryViewModel::refreshLibrary,
+                                    showArtworkIcons = iconsInUse,
                                     viewModel = detailsViewModel
                                 )
                             }
@@ -260,6 +289,20 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDismiss = libraryViewModel::dismissMissingRomPrompt
+                    )
+                } else if (artworkReviewQueue.isNotEmpty()) {
+                    val reviewPackage = artworkReviewQueue.first()
+                    ArtworkPickerDialog(
+                        packageName = reviewPackage,
+                        showIcons = iconsInUse,
+                        progressLabel = "${artworkReviewQueue.size} to review",
+                        onDone = { saved ->
+                            libraryViewModel.finishArtworkReview(
+                                reviewPackage,
+                                saved
+                            )
+                        },
+                        onSkipAll = libraryViewModel::skipAllArtworkReviews
                     )
                 }
             }

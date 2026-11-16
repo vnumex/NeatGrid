@@ -1,6 +1,7 @@
 package com.example.neatgrid.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -13,6 +14,7 @@ class LibraryRepository(private val context: Context) {
     private val LIBRARY_PACKAGE_NAMES = stringSetPreferencesKey("library_package_names")
     private val EXCLUDED_DETECTED_GAME_PACKAGES = stringSetPreferencesKey("excluded_detected_game_packages")
     private val HIDDEN_PACKAGE_NAMES = stringSetPreferencesKey("hidden_package_names")
+    private val EMULATOR_CLEANUP_DONE = booleanPreferencesKey("emulator_cleanup_done")
 
     val savedPackageNames: Flow<Set<String>> = context.libraryDataStore.data
         .map { preferences ->
@@ -46,6 +48,22 @@ class LibraryRepository(private val context: Context) {
 
     suspend fun removeApp(packageName: String) {
         removeApps(setOf(packageName))
+    }
+
+    suspend fun removeEmulatorEntriesOnce(): Set<String> {
+        var removed: Set<String> = emptySet()
+        context.libraryDataStore.edit { preferences ->
+            if (preferences[EMULATOR_CLEANUP_DONE] == true) return@edit
+            val current = preferences[LIBRARY_PACKAGE_NAMES] ?: emptySet()
+            removed = current.filterTo(mutableSetOf()) { packageName ->
+                !RomRepository.isRom(packageName) && EmulatorApps.isEmulatorOrFrontend(packageName)
+            }
+            preferences[LIBRARY_PACKAGE_NAMES] = current - removed
+            val hidden = preferences[HIDDEN_PACKAGE_NAMES] ?: emptySet()
+            preferences[HIDDEN_PACKAGE_NAMES] = hidden - removed
+            preferences[EMULATOR_CLEANUP_DONE] = true
+        }
+        return removed
     }
 
     suspend fun removeApps(packageNames: Set<String>) {

@@ -46,6 +46,25 @@ class RomRepositoryTest {
     }
 
     @Test
+    fun testParse_withPipeInLabel_roundTrips() {
+        val uri =
+            "content://com.android.externalstorage.documents/tree/primary%3AROMs/document/primary%3AROMs%2FA%7CB.iso"
+        val pkg = RomRepository.buildPackageName("org.ppsspp.ppsspp", "A|B", uri)
+        val parsed = RomRepository.parse(pkg)
+        assertNotNull(parsed)
+        assertEquals("org.ppsspp.ppsspp", parsed!!.emulatorPackage)
+        assertEquals("A|B", parsed.label)
+        assertEquals(uri, parsed.uriString)
+    }
+
+    @Test
+    fun testBuildPackageName_withoutPipeInLabel_keepsExistingFormat() {
+        val pkg =
+            RomRepository.buildPackageName("com.retroarch", "100% Orange Juice", "content://x")
+        assertEquals("rom:com.retroarch|100% Orange Juice|content://x", pkg)
+    }
+
+    @Test
     fun testParse_invalidFormat_returnsNull() {
         assertNull(RomRepository.parse("com.example.game"))
         assertNull(RomRepository.parse("rom:short_string"))

@@ -19,13 +19,8 @@ enum class MetadataCacheStatus {
 
 data class CachedGameMetadata(
     val metadata: GameMetadata,
-    val status: MetadataCacheStatus
-)
-
-data class MetadataConfig(
-    val order: List<MetadataSource>,
-    val iidbApiKey: String,
-    val rawgApiKey: String
+    val status: MetadataCacheStatus,
+    val fullSizeImages: Boolean = true
 )
 
 data class MetadataSearchResult(
@@ -38,6 +33,8 @@ class MetadataRepository internal constructor(
     private val service: LaunchBoxService = LaunchBoxService(),
     private val iidbService: IidbService = IidbService(),
     private val rawgService: RawgService = RawgService(),
+    private val steamService: SteamService = SteamService(),
+    steamGridDbService: SteamGridDbService = SteamGridDbService(),
     private val configProvider: suspend () -> MetadataConfig
 ) {
     constructor(
@@ -54,6 +51,9 @@ class MetadataRepository internal constructor(
         configProvider = configProvider
     )
 
+    private val artworkSources =
+        ArtworkSources(service, iidbService, rawgService, steamService, steamGridDbService)
+
     fun readCached(packageName: String): CachedGameMetadata? {
         val file = cacheFile(packageName)
         if (!file.exists()) return null
@@ -64,12 +64,14 @@ class MetadataRepository internal constructor(
                     metadata = GameMetadata.fromJson(json.getJSONObject("metadata")),
                     status = runCatching {
                         MetadataCacheStatus.valueOf(json.optString("status"))
-                    }.getOrDefault(MetadataCacheStatus.AUTOMATIC)
+                    }.getOrDefault(MetadataCacheStatus.AUTOMATIC),
+                    fullSizeImages = json.optBoolean("fullSizeImages", false)
                 )
             } else {
                 CachedGameMetadata(
                     metadata = GameMetadata.fromJson(json),
-                    status = MetadataCacheStatus.AUTOMATIC
+                    status = MetadataCacheStatus.AUTOMATIC,
+                    fullSizeImages = false
                 )
             }
         }.getOrNull()
@@ -87,7 +89,7 @@ class MetadataRepository internal constructor(
             )
         }
         val config = configProvider()
-        val sources = activeSources(config)
+        val sources = config.metadataSources()
         var authError: MetadataAuthException? = null
         var lastError: Exception? = null
         var hadSuccessfulAttempt = false
@@ -100,7 +102,7 @@ class MetadataRepository internal constructor(
                     val enriched = backfillSummary(
                         primary = match,
                         query = query,
-                        preferredPlatforms = preferredPlatforms,
+                        preferredPlatforms = match.platforms.toSet().ifEmpty { preferredPlatforms },
                         fallbackSources = sources.drop(index + 1),
                         config = config
                     )
@@ -132,7 +134,7 @@ class MetadataRepository internal constructor(
         val cleanQuery = MetadataMatcher.cleanQuery(query)
         if (cleanQuery.isBlank()) return MetadataSearchResult(emptyList())
         val config = configProvider()
-        val sources = activeSources(config)
+        val sources = config.metadataSources()
         val results = mutableListOf<GameMetadata>()
         val warnings = mutableListOf<String>()
         var hadSuccessfulAttempt = false
@@ -144,6 +146,8 @@ class MetadataRepository internal constructor(
                     MetadataSource.IIDB -> iidbService.searchGames(cleanQuery, config.iidbApiKey)
                     MetadataSource.LAUNCHBOX -> service.searchGames(cleanQuery)
                     MetadataSource.RAWG -> rawgService.searchGames(cleanQuery, config.rawgApiKey)
+                    MetadataSource.STEAM -> steamService.searchGames(cleanQuery)
+                    MetadataSource.STEAMGRIDDB -> emptyList()
                 }
                 hadSuccessfulAttempt = true
                 results += sourceResults
@@ -172,6 +176,8 @@ class MetadataRepository internal constructor(
             MetadataSource.IIDB -> iidbService.fetchGameDetails(sourceId, game, config.iidbApiKey)
             MetadataSource.LAUNCHBOX -> service.fetchGameDetails(sourceId, game)
             MetadataSource.RAWG -> rawgService.fetchGameDetails(sourceId, game, config.rawgApiKey)
+            MetadataSource.STEAM -> steamService.fetchGameDetails(sourceId, game)
+            MetadataSource.STEAMGRIDDB -> game
         }
         val withSourceId = if (resolved.sourceId.isNullOrBlank()) {
             resolved.copy(sourceId = sourceId)
@@ -179,7 +185,7 @@ class MetadataRepository internal constructor(
             resolved
         }
         if (!withSourceId.summary.isNullOrBlank()) return withSourceId
-        val fallbackSources = activeSources(config).filter { it != source }
+        val fallbackSources = config.metadataSources().filter { it != source }
         return backfillSummary(
             primary = withSourceId,
             query = MetadataMatcher.cleanQuery(withSourceId.title),
@@ -187,6 +193,32 @@ class MetadataRepository internal constructor(
             fallbackSources = fallbackSources,
             config = config
         )
+    }
+
+    suspend fun findArtworkOptions(metadata: GameMetadata): ArtworkOptions =
+        artworkSources.find(metadata, configProvider())
+
+    suspend fun findIcon(metadata: GameMetadata): String? {
+        metadata.iconUrl?.let { return it }
+        val config = configProvider()
+        val sourceId = metadata.sourceId.orEmpty()
+        val source = sourceId.takeIf { it.isNotBlank() }?.let { MetadataSource.fromSourceId(it) }
+        if (config.isActive(MetadataSource.IIDB)) {
+            val iidbMatch = if (source == MetadataSource.IIDB) {
+                iidbService.fetchGameDetails(sourceId, metadata, config.iidbApiKey)
+            } else {
+                iidbService.resolveBestMatch(
+                    MetadataMatcher.cleanQuery(metadata.title),
+                    metadata.platforms.toSet(),
+                    config.iidbApiKey
+                )
+            }
+            iidbMatch?.iconUrl?.let { return it }
+        }
+        if (source == MetadataSource.LAUNCHBOX && config.isActive(MetadataSource.LAUNCHBOX)) {
+            return service.fetchGameDetails(sourceId, metadata).iconUrl
+        }
+        return null
     }
 
     private suspend fun lookupFromSource(
@@ -209,6 +241,14 @@ class MetadataRepository internal constructor(
                 val resolved = match.sourceId?.let { rawgService.fetchGameDetails(it, match, config.rawgApiKey) } ?: match
                 resolved.copy(sourceId = match.sourceId)
             }
+            MetadataSource.STEAM -> {
+                val results = steamService.searchGames(query)
+                val match =
+                    MetadataMatcher.bestMatch(query, results, preferredPlatforms) ?: return null
+                match.sourceId?.let { steamService.fetchGameDetails(it, match) } ?: match
+            }
+
+            MetadataSource.STEAMGRIDDB -> null
         }
     }
 
@@ -239,16 +279,6 @@ class MetadataRepository internal constructor(
         return primary
     }
 
-    private fun activeSources(config: MetadataConfig): List<MetadataSource> {
-        return config.order.distinct().filter { source ->
-            when (source) {
-                MetadataSource.IIDB -> config.iidbApiKey.isNotBlank()
-                MetadataSource.RAWG -> config.rawgApiKey.isNotBlank()
-                MetadataSource.LAUNCHBOX -> true
-            }
-        }
-    }
-
     suspend fun save(
         packageName: String,
         cachedMetadata: CachedGameMetadata
@@ -257,6 +287,7 @@ class MetadataRepository internal constructor(
         val json = JSONObject()
             .put("version", 3)
             .put("status", cachedMetadata.status.name)
+            .put("fullSizeImages", cachedMetadata.fullSizeImages)
             .put("updatedAt", System.currentTimeMillis())
             .put("metadata", cachedMetadata.metadata.toJson())
         cacheFile(packageName).writeText(json.toString())
@@ -295,7 +326,9 @@ private fun defaultConfigProvider(context: Context): suspend () -> MetadataConfi
         MetadataConfig(
             order = settingsManager.metadataSourceOrderFlow.first(),
             iidbApiKey = settingsManager.iidbApiKeyFlow.first(),
-            rawgApiKey = settingsManager.rawgApiKeyFlow.first()
+            rawgApiKey = settingsManager.rawgApiKeyFlow.first(),
+            steamGridDbApiKey = settingsManager.steamGridDbApiKeyFlow.first(),
+            disabledSources = settingsManager.disabledMetadataSourcesFlow.first()
         )
     }
 }
@@ -378,6 +411,24 @@ object MetadataMatcher {
         setOf("nintendo ds", "nds", "ds"),
         setOf("nintendo 3ds", "3ds", "n3ds"),
         setOf("nintendo switch", "switch"),
+        setOf("wii u", "nintendo wii u"),
+        setOf("playstation 3", "sony playstation 3", "ps3"),
+        setOf("playstation 4", "sony playstation 4", "ps4"),
+        setOf("playstation 5", "sony playstation 5", "ps5"),
+        setOf("playstation vita", "sony playstation vita", "ps vita", "psvita"),
+        setOf("xbox", "microsoft xbox"),
+        setOf("xbox 360", "microsoft xbox 360"),
+        setOf("xbox one", "microsoft xbox one"),
+        setOf(
+            "xbox series",
+            "xbox series x s",
+            "microsoft xbox series x s",
+            "xbox series x",
+            "xbox series s"
+        ),
+        setOf("pc", "windows", "microsoft windows", "windows pc"),
+        setOf("macintosh", "mac", "macos", "mac os", "apple mac os", "apple macos"),
+        setOf("ios", "apple ios"),
         setOf("android")
     )
 

@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.neatgrid.ui.components.ArtworkPickerDialog
 import com.example.neatgrid.ui.components.GameMetadataEditor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -72,6 +74,7 @@ fun GameDetailsScreen(
     packageName: String,
     onBack: () -> Unit,
     onMetadataChanged: () -> Unit,
+    showArtworkIcons: Boolean = false,
     viewModel: GameDetailsViewModel = viewModel()
 ) {
     val metadata by viewModel.metadata.collectAsState()
@@ -81,6 +84,7 @@ fun GameDetailsScreen(
 
     val context = LocalContext.current
     var showMetadataEditor by remember { mutableStateOf(false) }
+    var showArtworkPicker by remember { mutableStateOf(false) }
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val searchError by viewModel.searchError.collectAsState()
@@ -110,6 +114,13 @@ fun GameDetailsScreen(
                 },
                 actions = {
                     if (metadata != null) {
+                        IconButton(onClick = { showArtworkPicker = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "Choose artwork",
+                                tint = Color.White
+                            )
+                        }
                         IconButton(onClick = { showMetadataEditor = true }) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
@@ -459,6 +470,20 @@ fun GameDetailsScreen(
                     }
                 }
             }
+        }
+
+        if (showArtworkPicker) {
+            ArtworkPickerDialog(
+                packageName = packageName,
+                showIcons = showArtworkIcons,
+                onDone = { saved ->
+                    showArtworkPicker = false
+                    if (saved) {
+                        viewModel.loadMetadata(packageName)
+                        onMetadataChanged()
+                    }
+                }
+            )
         }
 
         if (showMetadataEditor && metadata != null) {

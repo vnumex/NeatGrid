@@ -5,55 +5,50 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.neatgrid.data.Emulator
+import com.example.neatgrid.data.LibraryCoverStyle
+import com.example.neatgrid.data.LibraryDensity
+import com.example.neatgrid.data.LibraryTitleStyle
 import com.example.neatgrid.data.MetadataSource
 import com.example.neatgrid.ui.components.ApiKeyDialog
 import com.example.neatgrid.ui.components.InformationCreditsDialog
+import com.example.neatgrid.ui.components.MetadataSourceRow
+import com.example.neatgrid.ui.components.SegmentedSettingItem
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,10 +60,12 @@ fun SettingsScreen(
     darkThemeEnabled: Boolean,
     amoledBlackEnabled: Boolean,
     onAmoledBlackChange: (Boolean) -> Unit,
-    selectedAppsPerRow: Int,
-    onAppsPerRowChange: (Int) -> Unit,
-    showGameNames: Boolean,
-    onShowGameNamesChange: (Boolean) -> Unit,
+    libraryDensity: LibraryDensity,
+    onLibraryDensityChange: (LibraryDensity) -> Unit,
+    libraryTitleStyle: LibraryTitleStyle,
+    onLibraryTitleStyleChange: (LibraryTitleStyle) -> Unit,
+    libraryCoverStyle: LibraryCoverStyle,
+    onLibraryCoverStyleChange: (LibraryCoverStyle) -> Unit,
     roundedCovers: Boolean,
     onRoundedCoversChange: (Boolean) -> Unit,
     emulatorSelections: Map<String, String>,
@@ -85,7 +82,15 @@ fun SettingsScreen(
     onIidbApiKeyChange: (String) -> Unit,
     onVerifyIidbKey: (String, (Result<String>) -> Unit) -> Unit,
     rawgApiKey: String,
-    onRawgApiKeyChange: (String) -> Unit
+    onRawgApiKeyChange: (String) -> Unit,
+    steamGridDbApiKey: String,
+    onSteamGridDbApiKeyChange: (String) -> Unit,
+    onVerifySteamGridDbKey: (String, (Result<String>) -> Unit) -> Unit,
+    disabledMetadataSources: Set<MetadataSource>,
+    onMetadataSourceEnabledChange: (MetadataSource, Boolean) -> Unit,
+    imageCacheBytes: Long?,
+    onRefreshImageCacheSize: () -> Unit,
+    onClearImageCache: () -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     val themeOptions = listOf("System", "Light", "Dark")
@@ -93,7 +98,10 @@ fun SettingsScreen(
     var selectedSystem by remember { mutableStateOf<String?>(null) }
     var showIidbKeyDialog by remember { mutableStateOf(false) }
     var showRawgKeyDialog by remember { mutableStateOf(false) }
+    var showSteamGridDbKeyDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { onRefreshImageCacheSize() }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -130,28 +138,13 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             SectionHeader("Appearance")
-            ListItem(
+            SegmentedSettingItem(
                 modifier = Modifier.padding(start = 8.dp),
-                headlineContent = { Text(text = "Theme") },
-                supportingContent = {
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                    ) {
-                        themeOptions.forEachIndexed { index, label ->
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = themeOptions.size
-                                ),
-                                onClick = { onThemeChange(index) },
-                                selected = selectedThemeIndex == index,
-                                label = { Text(text = label) },
-                            )
-                        }
-                    }
-                }
+                title = "Theme",
+                options = themeOptions.indices.toList(),
+                selected = selectedThemeIndex,
+                optionLabel = { themeOptions[it] },
+                onSelect = onThemeChange
             )
             ListItem(
                 modifier = Modifier
@@ -200,66 +193,32 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Library")
-            ListItem(
+            SegmentedSettingItem(
                 modifier = Modifier.padding(start = 8.dp),
-                headlineContent = { Text(text = "Apps Per Row") },
-                supportingContent = {
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                enabled = selectedAppsPerRow > 2,
-                                onClick = { onAppsPerRowChange(selectedAppsPerRow - 1) }
-                            ) {
-                                Text(
-                                    text = "-",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            Text(
-                                text = selectedAppsPerRow.toString(),
-                                modifier = Modifier.width(64.dp),
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            IconButton(
-                                enabled = selectedAppsPerRow < 8,
-                                onClick = { onAppsPerRowChange(selectedAppsPerRow + 1) }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Increase apps per row"
-                                )
-                            }
-                        }
-                        Text(
-                            text = "Current: $selectedAppsPerRow apps",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                }
+                title = "Grid Density",
+                options = LibraryDensity.entries,
+                selected = libraryDensity,
+                optionLabel = LibraryDensity::label,
+                onSelect = onLibraryDensityChange
             )
-            ListItem(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .clickable { onShowGameNamesChange(!showGameNames) },
-                headlineContent = { Text(text = "Show Game Names") },
-                trailingContent = {
-                    Checkbox(
-                        checked = showGameNames,
-                        onCheckedChange = onShowGameNamesChange
-                    )
-                }
+            val iidbConfigured = iidbApiKey.isNotBlank()
+            SegmentedSettingItem(
+                modifier = Modifier.padding(start = 8.dp),
+                title = "Cover Style",
+                options = LibraryCoverStyle.entries,
+                selected = libraryCoverStyle.effective(iidbConfigured),
+                optionLabel = LibraryCoverStyle::label,
+                onSelect = onLibraryCoverStyleChange,
+                enabled = iidbConfigured,
+                supportingText = if (iidbConfigured) null else "Add an iiDB API key to use game icons"
+            )
+            SegmentedSettingItem(
+                modifier = Modifier.padding(start = 8.dp),
+                title = "Game Titles",
+                options = LibraryTitleStyle.entries,
+                selected = libraryTitleStyle,
+                optionLabel = LibraryTitleStyle::label,
+                onSelect = onLibraryTitleStyleChange
             )
             ListItem(
                 modifier = Modifier
@@ -276,43 +235,20 @@ fun SettingsScreen(
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
 
             SectionHeader("Metadata")
+            val keyConfigured = mapOf(
+                MetadataSource.IIDB to iidbApiKey.isNotBlank(),
+                MetadataSource.RAWG to rawgApiKey.isNotBlank(),
+                MetadataSource.STEAMGRIDDB to steamGridDbApiKey.isNotBlank()
+            )
             metadataSourceOrder.forEachIndexed { index, source ->
-                val baseSubtitle = when (source) {
-                    MetadataSource.IIDB -> {
-                        if (iidbApiKey.isNotBlank()) "API key configured" else "API key required"
-                    }
-                    MetadataSource.LAUNCHBOX -> "No API key required"
-                    MetadataSource.RAWG -> {
-                        if (rawgApiKey.isNotBlank()) "API key configured" else "API key required"
-                    }
-                }
-                val statusSubtitle = if (index == 0) "Default · $baseSubtitle" else baseSubtitle
-                ListItem(
-                    modifier = Modifier.padding(start = 8.dp),
-                    headlineContent = { Text(text = "${index + 1}. ${source.displayName}") },
-                    supportingContent = { Text(text = statusSubtitle) },
-                    trailingContent = {
-                        Row {
-                            IconButton(
-                                enabled = index > 0,
-                                onClick = { onMoveMetadataSource(index, -1) }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Move ${source.displayName} up"
-                                )
-                            }
-                            IconButton(
-                                enabled = index < metadataSourceOrder.lastIndex,
-                                onClick = { onMoveMetadataSource(index, 1) }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Move ${source.displayName} down"
-                                )
-                            }
-                        }
-                    }
+                MetadataSourceRow(
+                    position = index,
+                    source = source,
+                    isLast = index == metadataSourceOrder.lastIndex,
+                    enabled = source !in disabledMetadataSources,
+                    keyConfigured = keyConfigured[source] ?: false,
+                    onMove = { delta -> onMoveMetadataSource(index, delta) },
+                    onEnabledChange = { enabled -> onMetadataSourceEnabledChange(source, enabled) }
                 )
             }
             ListItem(
@@ -331,6 +267,15 @@ fun SettingsScreen(
                 headlineContent = { Text(text = "RAWG API Key") },
                 supportingContent = {
                     Text(text = if (rawgApiKey.isNotBlank()) "Configured" else "Not configured")
+                }
+            )
+            ListItem(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable { showSteamGridDbKeyDialog = true },
+                headlineContent = { Text(text = "SteamGridDB API Key") },
+                supportingContent = {
+                    Text(text = if (steamGridDbApiKey.isNotBlank()) "Configured" else "Not configured")
                 }
             )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -407,6 +352,21 @@ fun SettingsScreen(
                 }
             )
             HorizontalDivider( modifier = Modifier.padding(vertical = 8.dp) )
+
+            SectionHeader("Storage")
+            ListItem(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable(enabled = (imageCacheBytes ?: 0L) > 0L) { onClearImageCache() },
+                headlineContent = { Text(text = "Clear Image Cache") },
+                supportingContent = {
+                    Text(
+                        text = imageCacheBytes?.let { "${formatBytes(it)} of downloaded artwork" }
+                            ?: "Calculating…"
+                    )
+                }
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             ListItem(
                 modifier = Modifier
                     .padding(start = 8.dp)
@@ -447,6 +407,21 @@ fun SettingsScreen(
                 showIidbKeyDialog = false
             },
             onDismiss = { showIidbKeyDialog = false }
+        )
+    }
+
+    if (showSteamGridDbKeyDialog) {
+        ApiKeyDialog(
+            title = "SteamGridDB API Key",
+            currentKey = steamGridDbApiKey,
+            helperText = "Get a free API key at steamgriddb.com/profile/preferences/api",
+            helperUrl = "https://www.steamgriddb.com/profile/preferences/api",
+            onVerify = onVerifySteamGridDbKey,
+            onSave = { key ->
+                onSteamGridDbApiKeyChange(key)
+                showSteamGridDbKeyDialog = false
+            },
+            onDismiss = { showSteamGridDbKeyDialog = false }
         )
     }
 
@@ -574,6 +549,15 @@ private val nintendoSystems = listOf(
     "GameCube",
     "Wii"
 )
+
+private fun formatBytes(bytes: Long): String {
+    val megabytes = bytes / (1024.0 * 1024.0)
+    return if (megabytes >= 1.0) String.format(
+        Locale.ROOT,
+        "%.1f MB",
+        megabytes
+    ) else "${bytes / 1024} KB"
+}
 
 private val sonySystems = listOf("PlayStation 1", "PlayStation 2", "PSP")
 

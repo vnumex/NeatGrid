@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.graphics.drawable.Drawable
 import android.os.Build
 import java.text.Collator
 
@@ -15,7 +16,19 @@ class AppsRepository(private val context: Context) {
             .sortedByLabel()
     }
 
-    fun getInstalledGames(): List<AppInfo> {
+    fun getInstalledGamePackages(): Set<String> {
+        return gameActivities().mapTo(mutableSetOf()) { it.activityInfo.packageName }
+    }
+
+    fun getInstalledGames(packageNames: Set<String>): List<AppInfo> {
+        return gameActivities()
+            .filter { it.activityInfo.packageName in packageNames }
+            .map { resolveInfo -> resolveInfo.toAppInfo() }
+            .distinctBy { it.packageName }
+            .sortedByLabel()
+    }
+
+    private fun gameActivities(): List<ResolveInfo> {
         return getLaunchableActivities()
             .filter { resolveInfo ->
                 val applicationInfo = resolveInfo.activityInfo.applicationInfo
@@ -26,9 +39,7 @@ class AppsRepository(private val context: Context) {
                     applicationInfo.flags and ApplicationInfo.FLAG_IS_GAME != 0
                 }
             }
-            .map { resolveInfo -> resolveInfo.toAppInfo() }
-            .distinctBy { it.packageName }
-            .sortedByLabel()
+            .filterNot { resolveInfo -> EmulatorApps.isEmulatorOrFrontend(resolveInfo.activityInfo.packageName) }
     }
 
     private fun getLaunchableActivities(): List<ResolveInfo> {
@@ -50,7 +61,11 @@ class AppsRepository(private val context: Context) {
         return AppInfo(label = loadCleanLabel(this), packageName = packageName, icon = icon)
     }
 
-    fun getAppInfo(packageName: String): AppInfo? {
+    fun getAppInfo(
+        packageName: String,
+        knownIcon: Drawable? = null,
+        knownLabel: String? = null
+    ): AppInfo? {
         val pm = context.packageManager
         val intent = pm.getLaunchIntentForPackage(packageName) ?: return null
         val resolveInfo = if (Build.VERSION.SDK_INT >= 33) {
@@ -60,8 +75,9 @@ class AppsRepository(private val context: Context) {
             pm.resolveActivity(intent, 0)
         } ?: return null
 
-        val icon = resolveInfo.loadIcon(pm)
-        return AppInfo(label = loadCleanLabel(resolveInfo), packageName = packageName, icon = icon)
+        val icon = knownIcon ?: resolveInfo.loadIcon(pm)
+        val label = knownLabel ?: loadCleanLabel(resolveInfo)
+        return AppInfo(label = label, packageName = packageName, icon = icon)
     }
 
     private fun loadCleanLabel(resolveInfo: ResolveInfo): String {

@@ -165,6 +165,7 @@ class RomRepository {
     }
 
     companion object {
+        private const val ESCAPED_PIPE = "%7C"
         private val SAVE_FILE_EXTENSIONS = setOf(
             "sav", "srm", "dsv", "mcr", "mcd", "mem", "rtc", "eep", "fla", "nv", "ram"
         )
@@ -177,7 +178,7 @@ class RomRepository {
         }
 
         fun buildPackageName(emulatorPackage: String, label: String, uri: String): String {
-            return "rom:$emulatorPackage|$label|$uri"
+            return "rom:$emulatorPackage|${label.replace("|", ESCAPED_PIPE)}|$uri"
         }
 
         fun isRom(packageName: String): Boolean {
@@ -188,12 +189,10 @@ class RomRepository {
             if (!isRom(packageName)) return null
             try {
                 val content = packageName.substring(4)
-                val parts = content.split("|")
-                if (parts.size >= 3) {
-                    val emulatorPackage = parts[0]
-                    val label = parts[1]
-                    val uri = parts.subList(2, parts.size).joinToString("|")
-                    return RomData(emulatorPackage, label, uri)
+                val parts = content.split("|", limit = 3)
+                if (parts.size == 3) {
+                    val (emulatorPackage, label, uri) = parts
+                    return RomData(emulatorPackage, label.replace(ESCAPED_PIPE, "|"), uri)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

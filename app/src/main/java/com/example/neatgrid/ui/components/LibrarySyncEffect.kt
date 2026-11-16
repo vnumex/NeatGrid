@@ -21,12 +21,21 @@ fun LibrarySyncEffect(viewModel: LibraryViewModel) {
     DisposableEffect(viewModel, lifecycleOwner, context) {
         val packageReceiver = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context?, intent: Intent?) {
-                if (intent == null || intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
+                if (intent == null) return
+                val packageName = intent.data?.schemeSpecificPart
+                val replacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
                 when (intent.action) {
                     Intent.ACTION_PACKAGE_REMOVED -> {
-                        intent.data?.schemeSpecificPart?.let(viewModel::handlePackageRemoved)
+                        if (!replacing) packageName?.let(viewModel::handlePackageRemoved)
                     }
-                    Intent.ACTION_PACKAGE_ADDED -> viewModel.detectInstalledGames()
+
+                    Intent.ACTION_PACKAGE_ADDED -> {
+                        if (replacing) {
+                            packageName?.let(viewModel::handlePackageUpdated)
+                        } else {
+                            viewModel.detectInstalledGames()
+                        }
+                    }
                 }
             }
         }

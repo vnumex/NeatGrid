@@ -5,9 +5,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.neatgrid.data.SettingsManager
 import com.example.neatgrid.data.IidbService
+import com.example.neatgrid.data.ImageCache
+import com.example.neatgrid.data.LibraryCoverStyle
+import com.example.neatgrid.data.LibraryDensity
+import com.example.neatgrid.data.LibraryTitleStyle
 import com.example.neatgrid.data.MetadataSource
+import com.example.neatgrid.data.SteamGridDbService
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -15,6 +22,25 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val settingsManager = SettingsManager(application)
     private val iidbService = IidbService()
+    private val steamGridDbService = SteamGridDbService()
+    private val imageCache = ImageCache(application)
+
+    private val _imageCacheBytes = MutableStateFlow<Long?>(null)
+    val imageCacheBytes: StateFlow<Long?> = _imageCacheBytes.asStateFlow()
+
+    fun refreshImageCacheSize() {
+        viewModelScope.launch {
+            _imageCacheBytes.value = imageCache.sizeBytes()
+        }
+    }
+
+    fun clearImageCache(onCleared: () -> Unit) {
+        viewModelScope.launch {
+            imageCache.clear()
+            _imageCacheBytes.value = imageCache.sizeBytes()
+            onCleared()
+        }
+    }
 
     val themeIndex: StateFlow<Int> = settingsManager.themeIndexFlow
         .stateIn(
@@ -55,29 +81,42 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    val appsPerRow: StateFlow<Int> = settingsManager.appsPerRowFlow
+    val libraryDensity: StateFlow<LibraryDensity> = settingsManager.libraryDensityFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 5
+            initialValue = LibraryDensity.COMPACT
         )
 
-    fun setAppsPerRow(count: Int) {
+    fun setLibraryDensity(density: LibraryDensity) {
         viewModelScope.launch {
-            settingsManager.saveAppsPerRow(count)
+            settingsManager.saveLibraryDensity(density)
         }
     }
 
-    val showGameNames: StateFlow<Boolean> = settingsManager.showGameNamesFlow
+    val libraryTitleStyle: StateFlow<LibraryTitleStyle> = settingsManager.libraryTitleStyleFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = true
+            initialValue = LibraryTitleStyle.BELOW
         )
 
-    fun setShowGameNames(enabled: Boolean) {
+    fun setLibraryTitleStyle(style: LibraryTitleStyle) {
         viewModelScope.launch {
-            settingsManager.saveShowGameNames(enabled)
+            settingsManager.saveLibraryTitleStyle(style)
+        }
+    }
+
+    val libraryCoverStyle: StateFlow<LibraryCoverStyle> = settingsManager.libraryCoverStyleFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = LibraryCoverStyle.BOX_ART
+        )
+
+    fun setLibraryCoverStyle(style: LibraryCoverStyle) {
+        viewModelScope.launch {
+            settingsManager.saveLibraryCoverStyle(style)
         }
     }
 
@@ -149,6 +188,39 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun verifyIidbKey(apiKey: String, onResult: (Result<String>) -> Unit) {
         viewModelScope.launch {
             onResult(iidbService.verifyKey(apiKey))
+        }
+    }
+
+    val steamGridDbApiKey: StateFlow<String> = settingsManager.steamGridDbApiKeyFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ""
+        )
+
+    fun setSteamGridDbApiKey(apiKey: String) {
+        viewModelScope.launch {
+            settingsManager.saveSteamGridDbApiKey(apiKey)
+        }
+    }
+
+    fun verifySteamGridDbKey(apiKey: String, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            onResult(steamGridDbService.verifyKey(apiKey))
+        }
+    }
+
+    val disabledMetadataSources: StateFlow<Set<MetadataSource>> =
+        settingsManager.disabledMetadataSourcesFlow
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptySet()
+            )
+
+    fun setMetadataSourceEnabled(source: MetadataSource, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.saveMetadataSourceEnabled(source, enabled)
         }
     }
 

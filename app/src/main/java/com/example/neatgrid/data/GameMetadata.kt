@@ -13,7 +13,8 @@ data class GameMetadata(
     val coverUrl: String?,
     val screenshotUrls: List<String>,
     val sourceId: String? = null,
-    val backdropUrl: String? = null
+    val backdropUrl: String? = null,
+    val iconUrl: String? = null
 ) {
     fun toJson(): JSONObject {
         val json = JSONObject()
@@ -27,6 +28,7 @@ data class GameMetadata(
         json.put("screenshotUrls", JSONArray(screenshotUrls))
         json.put("sourceId", sourceId ?: JSONObject.NULL)
         json.put("backdropUrl", backdropUrl ?: JSONObject.NULL)
+        json.put("iconUrl", iconUrl ?: JSONObject.NULL)
         return json
     }
 
@@ -86,7 +88,9 @@ data class GameMetadata(
                 coverUrl = coverUrl,
                 screenshotUrls = screenshotsList,
                 sourceId = sourceId,
-                backdropUrl = backdropUrl
+                backdropUrl = backdropUrl,
+                iconUrl = json.optString("iconUrl", "")
+                    .takeIf { !json.isNull("iconUrl") && it.isNotEmpty() }
             )
         }
     }

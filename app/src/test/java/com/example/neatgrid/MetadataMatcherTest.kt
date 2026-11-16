@@ -5,7 +5,9 @@ import com.example.neatgrid.data.MetadataMatcher
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MetadataMatcherTest {
@@ -57,6 +59,18 @@ class MetadataMatcherTest {
             "Sonic Advance",
             MetadataMatcher.bestMatch("Sonic Advance", results, setOf("Game Boy Advance"))?.title
         )
+    }
+
+    @Test
+    fun platformAliasesMatchAcrossSources() {
+        assertTrue(MetadataMatcher.platformsMatch("PC", "Windows"))
+        assertTrue(MetadataMatcher.platformsMatch("PlayStation 5", "Sony Playstation 5"))
+        assertTrue(MetadataMatcher.platformsMatch("PlayStation 4", "Sony Playstation 4"))
+        assertTrue(MetadataMatcher.platformsMatch("Xbox One", "Microsoft Xbox One"))
+        assertTrue(MetadataMatcher.platformsMatch("Xbox Series", "Microsoft Xbox Series X/S"))
+        assertTrue(MetadataMatcher.platformsMatch("Macintosh", "Apple Mac OS"))
+        assertFalse(MetadataMatcher.platformsMatch("PlayStation 5", "Sony Playstation 4"))
+        assertFalse(MetadataMatcher.platformsMatch("PC", "Android"))
     }
 
     @Test

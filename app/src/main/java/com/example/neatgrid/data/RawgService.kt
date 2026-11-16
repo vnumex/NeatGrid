@@ -81,6 +81,26 @@ class RawgService(
         )
     }
 
+    suspend fun fetchArtwork(rawgId: String, apiKey: String): ArtworkUrls {
+        val cleanId = rawgId.removePrefix("rawg:").trim()
+        if (cleanId.isEmpty()) throw IOException("Missing RAWG game ID")
+        val encodedId = URLEncoder.encode(cleanId, "UTF-8")
+        val encodedKey = URLEncoder.encode(apiKey.trim(), "UTF-8")
+        val json = requestJson("/games/$encodedId?key=$encodedKey")
+        val banners = listOfNotNull(
+            json.optNullableString("background_image"),
+            json.optNullableString("background_image_additional")
+        ).distinct().map { ArtworkImage(it, previewUrl(it)) }
+        return ArtworkUrls(banners = banners)
+    }
+
+    private fun previewUrl(url: String): String {
+        return if ("/media/resize/" in url) url else url.replaceFirst(
+            "/media/",
+            "/media/resize/420/-/"
+        )
+    }
+
     private suspend fun requestJson(route: String): JSONObject {
         val response = withContext(Dispatchers.IO) {
             executeHttp(route)

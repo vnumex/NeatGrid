@@ -1,5 +1,7 @@
 package com.example.neatgrid
 
+import com.example.neatgrid.data.ArtworkKind
+import com.example.neatgrid.data.ArtworkUrls
 import com.example.neatgrid.data.GameMetadata
 import com.example.neatgrid.data.IidbService
 import com.example.neatgrid.data.LaunchBoxService
@@ -13,6 +15,7 @@ import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -199,6 +202,58 @@ class MetadataRepositoryTest {
         assertEquals("Catch monkeys", cached.metadata.summary)
         assertEquals(listOf("Platformer"), cached.metadata.genres)
         assertEquals(88.0, cached.metadata.rating!!, 0.01)
+    }
+
+    @Test
+    fun lookup_iidbMatchBackfillsSummaryUsingMatchedGamePlatforms() = runBlocking {
+        iidbHandler = { method, path ->
+            if (method == "POST" && path == "/resolve") {
+                200 to """
+                    {
+                      "match": {
+                        "status": "matched",
+                        "parent": {
+                          "id": 171196,
+                          "name": "DREDGE",
+                          "year": 2023,
+                          "primary_platform": "Nintendo Switch",
+                          "platform_summary": ["Nintendo Switch", "Android", "PC", "PlayStation 5"]
+                        }
+                      },
+                      "artwork": { "boxart": [{"url": "https://cdn.example/dredge.png"}] }
+                    }
+                """.trimIndent()
+            } else {
+                404 to "{}"
+            }
+        }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            searchResults = listOf(
+                sampleGame(title = "Dredge", platforms = listOf("Windows"), sourceId = "1-dredge"),
+                sampleGame(
+                    title = "Dredge",
+                    platforms = listOf("Sony Playstation 5"),
+                    sourceId = "2-dredge"
+                )
+            ),
+            detailsById = mapOf(
+                "1-dredge" to sampleGame(
+                    title = "Dredge",
+                    summary = "A fishing adventure with a sinister undercurrent.",
+                    genres = listOf("Adventure"),
+                    platforms = listOf("Windows"),
+                    sourceId = "1-dredge"
+                )
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val cached = repository.lookup("DREDGE", setOf("Android"))
+
+        assertEquals("iidb:171196", cached.metadata.sourceId)
+        assertEquals("A fishing adventure with a sinister undercurrent.", cached.metadata.summary)
+        assertEquals(listOf("Adventure"), cached.metadata.genres)
+        assertEquals("https://cdn.example/dredge.png", cached.metadata.coverUrl)
     }
 
     @Test
@@ -426,6 +481,279 @@ class MetadataRepositoryTest {
         assertEquals("https://rawg.example/bg.jpg", resolvedRawg.backdropUrl)
     }
 
+    @Test
+    fun findIcon_returnsExistingIconWithoutNetwork() = runBlocking {
+        val repository = repositoryWith(FakeLaunchBoxService(), iidbKey = "iidb-secret")
+
+        val icon = repository.findIcon(
+            sampleGame(
+                title = "Ape Escape 3",
+                iconUrl = "https://cdn.example/known.png"
+            )
+        )
+
+        assertEquals("https://cdn.example/known.png", icon)
+        assertEquals(0, iidbRequests.get())
+    }
+
+    @Test
+    fun findIcon_fetchesIidbAssetsForIidbSourcedGame() = runBlocking {
+        iidbHandler = { method, path ->
+            if (method == "GET" && path.startsWith("/assets/parents/99")) {
+                200 to iidbParentJson(icon = "https://cdn.example/icon.png")
+            } else {
+                404 to "{}"
+            }
+        }
+        val repository = repositoryWith(FakeLaunchBoxService(), iidbKey = "iidb-secret")
+
+        val icon = repository.findIcon(sampleGame(title = "Ape Escape 3", sourceId = "iidb:99"))
+
+        assertEquals("https://cdn.example/icon.png", icon)
+    }
+
+    @Test
+    fun findIcon_resolvesOnIidbByTitleForOtherSources() = runBlocking {
+        iidbHandler = { method, path ->
+            if (method == "POST" && path == "/resolve") {
+                200 to iidbParentJson(icon = "https://cdn.example/icon.png", status = "matched")
+            } else {
+                404 to "{}"
+            }
+        }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            detailsById = mapOf(
+                "123-ape-escape-3" to sampleGame(
+                    title = "Ape Escape 3",
+                    iconUrl = "https://lb.example/square.png"
+                )
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val icon = repository.findIcon(
+            sampleGame(
+                title = "Ape Escape 3 (USA)",
+                platforms = listOf("PlayStation 2"),
+                sourceId = "123-ape-escape-3"
+            )
+        )
+
+        assertEquals("https://cdn.example/icon.png", icon)
+        assertEquals(0, fakeLaunchBox.detailRequests)
+    }
+
+    @Test
+    fun findIcon_fallsBackToLaunchBoxSquareWhenIidbHasNoIcon() = runBlocking {
+        iidbHandler = { method, path ->
+            if (method == "POST" && path == "/resolve") {
+                200 to iidbParentJson(icon = null, status = "matched")
+            } else {
+                404 to "{}"
+            }
+        }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            detailsById = mapOf(
+                "123-ape-escape-3" to sampleGame(
+                    title = "Ape Escape 3",
+                    iconUrl = "https://lb.example/square.png"
+                )
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val icon =
+            repository.findIcon(sampleGame(title = "Ape Escape 3", sourceId = "123-ape-escape-3"))
+
+        assertEquals("https://lb.example/square.png", icon)
+    }
+
+    @Test
+    fun findIcon_withoutIidbKeyUsesLaunchBoxOnly() = runBlocking {
+        val fakeLaunchBox = FakeLaunchBoxService(
+            detailsById = mapOf(
+                "123-ape-escape-3" to sampleGame(
+                    title = "Ape Escape 3",
+                    iconUrl = "https://lb.example/square.png"
+                )
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "")
+
+        val icon =
+            repository.findIcon(sampleGame(title = "Ape Escape 3", sourceId = "123-ape-escape-3"))
+
+        assertEquals("https://lb.example/square.png", icon)
+        assertEquals(0, iidbRequests.get())
+    }
+
+    @Test
+    fun findIcon_returnsNullForRawgGameWithoutIidb() = runBlocking {
+        val repository = repositoryWith(FakeLaunchBoxService(), iidbKey = "")
+
+        assertNull(repository.findIcon(sampleGame(title = "Ape Escape 3", sourceId = "rawg:456")))
+        assertEquals(0, rawgRequests.get())
+    }
+
+    @Test
+    fun findArtworkOptions_usesOwnIdAndSearchesOtherSources() = runBlocking {
+        val iidbPaths = mutableListOf<String>()
+        iidbHandler = { method, path ->
+            iidbPaths += "$method $path"
+            when {
+                method == "POST" && path == "/resolve" -> 200 to iidbParentJson(icon = null)
+                method == "GET" && path.startsWith("/assets/parents/99") -> 200 to """
+                    {
+                      "artwork": {
+                        "boxart": [{"url": "https://cdn.example/iidb-box.png"}],
+                        "icon": [{"url": "https://cdn.example/iidb-icon.png"}],
+                        "banner": [{"url": "https://cdn.example/iidb-banner.png"}]
+                      }
+                    }
+                """.trimIndent()
+
+                else -> 404 to "{}"
+            }
+        }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            artworkById = mapOf(
+                "123-ape-escape-3" to ArtworkUrls(
+                    covers = images(
+                        "https://lb.example/front.jpg",
+                        "https://cdn.example/iidb-box.png"
+                    ),
+                    banners = images("https://lb.example/banner.jpg")
+                )
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val options = repository.findArtworkOptions(
+            sampleGame(
+                title = "Ape Escape 3",
+                platforms = listOf("PlayStation 2"),
+                sourceId = "123-ape-escape-3"
+            )
+        )
+
+        assertTrue(iidbPaths.any { it == "POST /resolve" })
+        assertEquals(
+            listOf(
+                MetadataSource.LAUNCHBOX to listOf(
+                    "https://lb.example/front.jpg",
+                    "https://cdn.example/iidb-box.png"
+                )
+            ),
+            options.urlsOf(ArtworkKind.COVER)
+        )
+        assertEquals(
+            listOf(
+                MetadataSource.IIDB to listOf("https://cdn.example/iidb-banner.png"),
+                MetadataSource.LAUNCHBOX to listOf("https://lb.example/banner.jpg")
+            ),
+            options.urlsOf(ArtworkKind.BANNER)
+        )
+        assertEquals(
+            listOf(
+                MetadataSource.IIDB to listOf(
+                    "https://cdn.example/iidb-icon.png",
+                    "https://cdn.example/iidb-box.png"
+                )
+            ),
+            options.urlsOf(ArtworkKind.ICON)
+        )
+        assertEquals(0, rawgRequests.get())
+    }
+
+    @Test
+    fun findArtworkOptions_skipsFailingSource() = runBlocking {
+        iidbHandler = { _, _ -> 500 to "{}" }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            artworkById = mapOf("123-ape-escape-3" to ArtworkUrls(covers = images("https://lb.example/front.jpg")))
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val options = repository.findArtworkOptions(
+            sampleGame(
+                title = "Ape Escape 3",
+                sourceId = "123-ape-escape-3"
+            )
+        )
+
+        assertEquals(
+            listOf(MetadataSource.LAUNCHBOX to listOf("https://lb.example/front.jpg")),
+            options.urlsOf(ArtworkKind.COVER)
+        )
+    }
+
+    @Test
+    fun findArtworkOptions_searchesLaunchBoxWhenGameCameFromIidb() = runBlocking {
+        iidbHandler = { method, path ->
+            if (method == "GET" && path.startsWith("/assets/parents/99")) 200 to "{\"artwork\": {}}" else 404 to "{}"
+        }
+        val fakeLaunchBox = FakeLaunchBoxService(
+            searchResults = listOf(
+                sampleGame(
+                    title = "Ape Escape 3",
+                    platforms = listOf("Sony PlayStation 2"),
+                    sourceId = "123-ape-escape-3"
+                ),
+                sampleGame(
+                    title = "Ape Escape 3",
+                    platforms = listOf("Sony PSP"),
+                    sourceId = "999-wrong-platform"
+                )
+            ),
+            artworkById = mapOf(
+                "123-ape-escape-3" to ArtworkUrls(covers = images("https://lb.example/ps2.jpg")),
+                "999-wrong-platform" to ArtworkUrls(covers = images("https://lb.example/psp.jpg"))
+            )
+        )
+        val repository = repositoryWith(fakeLaunchBox, iidbKey = "iidb-secret")
+
+        val options = repository.findArtworkOptions(
+            sampleGame(
+                title = "Ape Escape 3",
+                platforms = listOf("PlayStation 2"),
+                sourceId = "iidb:99"
+            )
+        )
+
+        assertEquals(
+            listOf(MetadataSource.LAUNCHBOX to listOf("https://lb.example/ps2.jpg")),
+            options.urlsOf(ArtworkKind.COVER)
+        )
+    }
+
+    private fun repositoryWith(launchBox: LaunchBoxService, iidbKey: String) = MetadataRepository(
+        metadataDirectory = tempDir,
+        service = launchBox,
+        iidbService = iidbService,
+        rawgService = rawgService
+    ) {
+        MetadataConfig(
+            order = listOf(MetadataSource.IIDB, MetadataSource.LAUNCHBOX, MetadataSource.RAWG),
+            iidbApiKey = iidbKey,
+            rawgApiKey = ""
+        )
+    }
+
+    private fun iidbParentJson(icon: String?, status: String = "matched"): String {
+        val iconArray = icon?.let { "[{\"url\": \"$it\"}]" } ?: "[]"
+        return """
+            {
+              "match": {
+                "status": "$status",
+                "parent": { "id": 99, "name": "Ape Escape 3", "year": 2005, "primary_platform": "PlayStation 2" }
+              },
+              "artwork": {
+                "boxart": [{"url": "https://cdn.example/box.png"}],
+                "icon": $iconArray
+              }
+            }
+        """.trimIndent()
+    }
+
     private fun sampleGame(
         title: String,
         summary: String? = null,
@@ -436,7 +764,8 @@ class MetadataRepositoryTest {
         coverUrl: String? = null,
         screenshotUrls: List<String> = emptyList(),
         sourceId: String? = null,
-        backdropUrl: String? = null
+        backdropUrl: String? = null,
+        iconUrl: String? = null
     ) = GameMetadata(
         title = title,
         summary = summary,
@@ -447,14 +776,19 @@ class MetadataRepositoryTest {
         coverUrl = coverUrl,
         screenshotUrls = screenshotUrls,
         sourceId = sourceId,
-        backdropUrl = backdropUrl
+        backdropUrl = backdropUrl,
+        iconUrl = iconUrl
     )
 
     private class FakeLaunchBoxService(
         private val searchResults: List<GameMetadata> = emptyList(),
         private val detailsById: Map<String, GameMetadata> = emptyMap(),
-        private val searchError: Exception? = null
+        private val searchError: Exception? = null,
+        private val artworkById: Map<String, ArtworkUrls> = emptyMap()
     ) : LaunchBoxService() {
+        var detailRequests = 0
+            private set
+
         override suspend fun searchGames(query: String): List<GameMetadata> {
             searchError?.let { throw it }
             return searchResults
@@ -462,6 +796,12 @@ class MetadataRepositoryTest {
         override suspend fun fetchGameDetails(
             detailsUrlSuffix: String,
             basicMetadata: GameMetadata
-        ): GameMetadata = detailsById[detailsUrlSuffix] ?: basicMetadata
+        ): GameMetadata {
+            detailRequests++
+            return detailsById[detailsUrlSuffix] ?: basicMetadata
+        }
+
+        override suspend fun fetchArtwork(detailsUrlSuffix: String): ArtworkUrls =
+            artworkById[detailsUrlSuffix] ?: ArtworkUrls()
     }
 }

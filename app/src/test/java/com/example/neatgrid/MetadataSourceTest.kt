@@ -13,21 +13,60 @@ class MetadataSourceTest {
         assertEquals(MetadataSource.DEFAULT_ORDER, MetadataSource.parseOrder(null))
         assertEquals(MetadataSource.DEFAULT_ORDER, MetadataSource.parseOrder(""))
         assertEquals(
-            listOf(MetadataSource.RAWG, MetadataSource.IIDB, MetadataSource.LAUNCHBOX),
+            listOf(
+                MetadataSource.RAWG,
+                MetadataSource.IIDB,
+                MetadataSource.LAUNCHBOX,
+                MetadataSource.STEAM,
+                MetadataSource.STEAMGRIDDB
+            ),
             MetadataSource.parseOrder("rawg,unknown,rawg")
         )
     }
 
     @Test
+    fun parseOrder_appendsNewSourcesAfterSavedOrder() {
+        assertEquals(
+            listOf(
+                MetadataSource.LAUNCHBOX,
+                MetadataSource.IIDB,
+                MetadataSource.RAWG,
+                MetadataSource.STEAM,
+                MetadataSource.STEAMGRIDDB
+            ),
+            MetadataSource.parseOrder("launchbox,iidb,rawg")
+        )
+    }
+
+    @Test
+    fun parseIds_readsDisabledSources() {
+        assertEquals(
+            setOf(MetadataSource.STEAM, MetadataSource.RAWG),
+            MetadataSource.parseIds(setOf("steam", "rawg", "unknown"))
+        )
+    }
+
+    @Test
     fun serializeOrder_roundTripsThroughParseOrder() {
-        val customOrder = listOf(MetadataSource.LAUNCHBOX, MetadataSource.RAWG, MetadataSource.IIDB)
-        assertEquals("launchbox,rawg,iidb", MetadataSource.serializeOrder(customOrder))
+        val customOrder = listOf(
+            MetadataSource.STEAMGRIDDB,
+            MetadataSource.LAUNCHBOX,
+            MetadataSource.STEAM,
+            MetadataSource.RAWG,
+            MetadataSource.IIDB
+        )
+        assertEquals(
+            "steamgriddb,launchbox,steam,rawg,iidb",
+            MetadataSource.serializeOrder(customOrder)
+        )
         assertEquals(customOrder, MetadataSource.parseOrder(MetadataSource.serializeOrder(customOrder)))
     }
 
     @Test
     fun fromSourceId_mapsPrefixesAndLegacyLaunchBox() {
         assertEquals(MetadataSource.IIDB, MetadataSource.fromSourceId("iidb:46185"))
+        assertEquals(MetadataSource.STEAM, MetadataSource.fromSourceId("steam:1562430"))
+        assertEquals(MetadataSource.STEAMGRIDDB, MetadataSource.fromSourceId("steamgriddb:5"))
         assertEquals(MetadataSource.RAWG, MetadataSource.fromSourceId("rawg:3498"))
         assertEquals(MetadataSource.LAUNCHBOX, MetadataSource.fromSourceId("2224-sonic-advance"))
         assertEquals(MetadataSource.LAUNCHBOX, MetadataSource.fromSourceId("launchbox:2224-sonic-advance"))

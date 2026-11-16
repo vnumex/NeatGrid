@@ -5,14 +5,20 @@ import java.io.IOException
 enum class MetadataSource(
     val id: String,
     val displayName: String,
-    val requiresApiKey: Boolean
+    val requiresApiKey: Boolean,
+    val providesMetadata: Boolean = true
 ) {
     IIDB("iidb", "iiDB", true),
     LAUNCHBOX("launchbox", "LaunchBox", false),
-    RAWG("rawg", "RAWG", true);
+    STEAM("steam", "Steam", false),
+    RAWG("rawg", "RAWG", true),
+    STEAMGRIDDB("steamgriddb", "SteamGridDB", true, providesMetadata = false);
 
     companion object {
-        val DEFAULT_ORDER: List<MetadataSource> = listOf(IIDB, LAUNCHBOX, RAWG)
+        val DEFAULT_ORDER: List<MetadataSource> = listOf(IIDB, LAUNCHBOX, STEAM, RAWG, STEAMGRIDDB)
+
+        fun parseIds(serialized: Set<String>): Set<MetadataSource> =
+            entries.filter { it.id in serialized }.toSet()
 
         fun parseOrder(serialized: String?): List<MetadataSource> {
             if (serialized.isNullOrBlank()) return DEFAULT_ORDER

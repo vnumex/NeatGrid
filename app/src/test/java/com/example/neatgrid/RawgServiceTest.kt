@@ -194,4 +194,35 @@ class RawgServiceTest {
         assertTrue(thrown is MetadataAuthException)
         assertEquals(MetadataSource.RAWG, (thrown as MetadataAuthException).source)
     }
+
+    @Test
+    fun fetchArtwork_returnsBackgroundsAsBanners() = runBlocking {
+        handler = { method, path ->
+            if (method == "GET" && path.startsWith("/games/456?")) {
+                200 to """
+                    {
+                      "id": 456,
+                      "background_image": "https://media.rawg.io/media/games/bg1.jpg",
+                      "background_image_additional": "https://rawg.example/bg2.jpg"
+                    }
+                """.trimIndent()
+            } else {
+                404 to "{}"
+            }
+        }
+
+        val artwork = service.fetchArtwork("rawg:456", "key")
+
+        assertEquals(emptyList<String>(), artwork.covers.map { it.url })
+        assertEquals(
+            listOf("https://media.rawg.io/media/games/bg1.jpg", "https://rawg.example/bg2.jpg"),
+            artwork.banners.map { it.url }
+        )
+        assertEquals(
+            "https://media.rawg.io/media/resize/420/-/games/bg1.jpg",
+            artwork.banners[0].previewUrl
+        )
+        assertEquals("https://rawg.example/bg2.jpg", artwork.banners[1].previewUrl)
+        assertEquals(emptyList<String>(), artwork.icons.map { it.url })
+    }
 }

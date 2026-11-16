@@ -146,6 +146,7 @@ class IidbServiceTest {
                       },
                       "artwork": {
                         "boxart": [{ "url": "https://assets.iisu.network/boxart/46185.jpg" }],
+                        "icon": [{ "url": "https://assets.iisu.network/icon/46185.png" }],
                         "background": [{ "url": "https://assets.iisu.network/bg/46185.jpg" }],
                         "screenshot": [
                           { "url": "https://assets.iisu.network/ss/46185-1.jpg" },
@@ -162,6 +163,9 @@ class IidbServiceTest {
         val matched = service.resolveBestMatch("Ape Escape 3", setOf("PlayStation 2"), "my-key")
         assertNotNull(matched)
         assertEquals("ps2", lastRequestBody?.optString("preferred_console"))
+        val requestedSlots = lastRequestBody!!.getJSONArray("slots")
+        assertTrue((0 until requestedSlots.length()).any { requestedSlots.getString(it) == "icon" })
+        assertEquals("https://assets.iisu.network/icon/46185.png", matched!!.iconUrl)
         assertEquals("iidb:46185", matched!!.sourceId)
         assertEquals("Ape Escape 3", matched.title)
         assertEquals("2005", matched.releaseDate)
@@ -223,7 +227,8 @@ class IidbServiceTest {
                       "artwork": {
                         "boxart": [{ "url": "https://assets.iisu.network/boxart/46185.jpg" }],
                         "background": [{ "url": "https://assets.iisu.network/bg/46185.jpg" }],
-                        "screenshot": [{ "url": "https://assets.iisu.network/ss/46185.jpg" }]
+                        "screenshot": [{ "url": "https://assets.iisu.network/ss/46185.jpg" }],
+                        "icon": [{ "url": "https://assets.iisu.network/icon/46185.png" }]
                       }
                     }
                 """.trimIndent()
@@ -239,6 +244,12 @@ class IidbServiceTest {
         assertEquals("https://assets.iisu.network/bg/46185.jpg", resolved.backdropUrl)
         assertEquals(listOf("https://assets.iisu.network/ss/46185.jpg"), resolved.screenshotUrls)
         assertTrue(calledPaths.any { it.startsWith("GET /assets/parents/46185") })
+        assertTrue(calledPaths.any {
+            it.startsWith("GET /assets/parents/46185") && "icon" in it.substringAfter(
+                "slots="
+            ).substringBefore("&").split(",")
+        })
+        assertEquals("https://assets.iisu.network/icon/46185.png", resolved.iconUrl)
     }
 
     @Test
@@ -322,5 +333,51 @@ class IidbServiceTest {
         val missing = service.resolveBestMatch("Unknown Game", setOf("GameCube", "Wii"), "my-key")
         assertNull(missing)
         assertEquals(false, requestJson?.has("preferred_console"))
+    }
+
+    @Test
+    fun fetchArtwork_groupsSquareBoxArtWithIcons() = runBlocking {
+        var requestedPath: String? = null
+        handler = { method, path, _, _ ->
+            if (method == "GET" && path.startsWith("/assets/parents/46185")) {
+                requestedPath = path
+                200 to """
+                    {
+                      "artwork": {
+                        "boxart": [{ "url": "https://a/box1.png", "thumbnail_url": "https://a/box1-small.png" }, { "url": "https://a/box2.png" }],
+                        "iisu_boxart": [{ "url": "https://a/iisu.png" }],
+                        "icon": [{ "url": "https://a/icon.png" }],
+                        "banner": [{ "url": "https://a/banner.png" }],
+                        "hero": [{ "url": "https://a/hero.png" }, { "url": "https://a/banner.png" }]
+                      }
+                    }
+                """.trimIndent()
+            } else {
+                404 to "{}"
+            }
+        }
+
+        val artwork = service.fetchArtwork("iidb:46185", "my-key")
+
+        val slots = requestedPath!!.substringAfter("slots=").substringBefore("&").split(",").toSet()
+        assertEquals(setOf("boxart", "iisu_boxart", "icon", "banner", "hero"), slots)
+        assertEquals(emptyList<String>(), artwork.covers.map { it.url })
+        assertEquals(
+            "https://a/box1-small.png",
+            artwork.icons.first { it.url == "https://a/box1.png" }.previewUrl
+        )
+        assertEquals("https://a/icon.png", artwork.icons.first().previewUrl)
+        assertEquals(
+            listOf("https://a/banner.png", "https://a/hero.png"),
+            artwork.banners.map { it.url })
+        assertEquals(
+            listOf(
+                "https://a/icon.png",
+                "https://a/box1.png",
+                "https://a/box2.png",
+                "https://a/iisu.png"
+            ),
+            artwork.icons.map { it.url }
+        )
     }
 }

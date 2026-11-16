@@ -18,13 +18,57 @@ open class LaunchBoxService {
         parseSearchResults(doc)
     }
 
-    open suspend fun fetchGameDetails(detailsUrlSuffix: String, basicMetadata: GameMetadata): GameMetadata = withContext(Dispatchers.IO) {
-        val urlSpec = "https://gamesdb.launchbox-app.com/games/details/$detailsUrlSuffix"
-        val doc = Jsoup.connect(urlSpec)
+    open suspend fun fetchGameDetails(
+        detailsUrlSuffix: String,
+        basicMetadata: GameMetadata
+    ): GameMetadata =
+        parseGameDetails(fetchDetailsPage(detailsUrlSuffix), basicMetadata)
+
+    open suspend fun fetchArtwork(detailsUrlSuffix: String): ArtworkUrls =
+        parseArtwork(fetchDetailsPage(detailsUrlSuffix))
+
+    open suspend fun fetchFullSizeNames(detailsUrlSuffix: String): Map<String, String> =
+        LaunchBoxImages.fullSizeNames(fetchDetailsPage(detailsUrlSuffix))
+
+    private suspend fun fetchDetailsPage(detailsUrlSuffix: String): Document =
+        withContext(Dispatchers.IO) {
+            Jsoup.connect("https://gamesdb.launchbox-app.com/games/details/$detailsUrlSuffix")
             .userAgent(USER_AGENT)
             .timeout(10000)
             .get()
-        parseGameDetails(doc, basicMetadata)
+        }
+
+    fun parseArtwork(doc: Document): ArtworkUrls {
+        val fullSizeNames = LaunchBoxImages.fullSizeNames(doc)
+        val sections = doc.select("h3").map { heading ->
+            val urls = heading.nextElementSibling()
+                ?.select("img")
+                ?.map { it.absUrl("src") }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+            heading.text().trim() to urls
+        }
+
+        fun imagesWhere(predicate: (String) -> Boolean) = sections
+            .filter { (title, _) -> predicate(title) }
+            .flatMap { it.second }
+            .distinct()
+            .map { preview ->
+                ArtworkImage(
+                    LaunchBoxImages.toFullSize(preview, fullSizeNames),
+                    preview
+                )
+            }
+        return ArtworkUrls(
+            covers = imagesWhere { it.startsWith("Box - Front", ignoreCase = true) },
+            banners = imagesWhere {
+                it.equals("Banner", ignoreCase = true) || it.equals(
+                    "Fanart - Background",
+                    ignoreCase = true
+                )
+            },
+            icons = imagesWhere { it.equals("Square", ignoreCase = true) }
+        )
     }
 
     fun parseSearchResults(doc: Document): List<GameMetadata> {
@@ -149,6 +193,12 @@ open class LaunchBoxService {
                 coverUrl = coverImg.absUrl("src")
             }
         }
+        val iconUrl = doc.select("h3")
+            .firstOrNull { it.text().trim().equals("Square", ignoreCase = true) }
+            ?.nextElementSibling()
+            ?.selectFirst("img")
+            ?.absUrl("src")
+            ?.takeIf { it.isNotEmpty() }
 
         val screenshots = mutableListOf<String>()
         val backdropImg = doc.selectFirst("main img.opacity-40") ?: doc.selectFirst("main img[class*=opacity]")
@@ -171,6 +221,9 @@ open class LaunchBoxService {
             }
         }
 
+        val fullSizeNames = LaunchBoxImages.fullSizeNames(doc)
+        fun fullSize(url: String?) = url?.let { LaunchBoxImages.toFullSize(it, fullSizeNames) }
+
         return basicMetadata.copy(
             title = title,
             summary = overview.takeIf { it.isNotEmpty() } ?: basicMetadata.summary,
@@ -178,9 +231,10 @@ open class LaunchBoxService {
             releaseDate = releaseDate,
             genres = genres,
             platforms = platforms,
-            coverUrl = coverUrl,
+            coverUrl = fullSize(coverUrl),
             screenshotUrls = screenshots,
-            backdropUrl = backdropUrl
+            backdropUrl = fullSize(backdropUrl),
+            iconUrl = fullSize(iconUrl) ?: basicMetadata.iconUrl
         )
     }
 
